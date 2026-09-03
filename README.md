@@ -39,11 +39,11 @@ install → knip → format:ci → check-types → depcruise → test → build 
 ```
 
 `deploy` は `push` かつ `main` のときだけ。PR では静的解析と build まで。
-デプロイ後の確認（`/api/health` の本文と `content-type`、SPA、preview subdomain の非公開）は手で行う——手順は [plans/phase-00-skeleton.md](plans/phase-00-skeleton.md) §11-3。
 
 CI に要る secret は 4 つ — `ALCHEMY_PASSWORD` / `ALCHEMY_STATE_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`。
 
-**手元から `prod` は出せない**（`alchemy.run.ts` が止める）。状態ストアが `ALCHEMY_DEPLOY` で切り替わるので、手元から打つと空の `.alchemy/` を正本として読み、すでに在る D1 と R2 を作り直しに行く。逃げ道はエラーメッセージに書いてある。
+手元から `prod` は出せない（`alchemy.run.ts` が止める）。
+状態ストアが `ALCHEMY_DEPLOY` で切り替わるので、手元から打つと空の `.alchemy/` を正本として読み、すでに在る D1 と R2 を作り直しに行く。逃げ道はエラーメッセージに書いてある。
 
 ## 静的解析
 
