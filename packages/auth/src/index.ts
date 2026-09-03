@@ -1,3 +1,4 @@
+import { SESSION_CACHE_SECONDS } from "@offdesk/contract";
 import { createDb } from "@offdesk/db";
 import * as schema from "@offdesk/db/schema";
 import { gateEmail, parseAllowedEmails } from "@offdesk/domain";
@@ -8,8 +9,6 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 /** 操作のたびに延長する。1 日以上経っていたら書き戻す。 */
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24;
-/** セッション解決で毎回 D1 を引かないための短命な署名付きキャッシュ。 */
-const SESSION_COOKIE_CACHE_SECONDS = 60 * 5;
 
 export type AuthEnv = Readonly<{
   DB: D1Database;
@@ -83,7 +82,12 @@ export function createAuth(env: AuthEnv) {
     session: {
       expiresIn: SESSION_MAX_AGE_SECONDS,
       updateAge: SESSION_UPDATE_AGE_SECONDS,
-      cookieCache: { enabled: true, maxAge: SESSION_COOKIE_CACHE_SECONDS },
+      /*
+        毎回 D1 を引かないための短命な署名付きキャッシュ。
+        **client 側の gate も同じ値を `staleTime` に使う**（`@offdesk/contract`）。
+        サーバーが 5 分より細かく知らないなら、client も細かく主張しない。
+      */
+      cookieCache: { enabled: true, maxAge: SESSION_CACHE_SECONDS },
     },
 
     rateLimit: {

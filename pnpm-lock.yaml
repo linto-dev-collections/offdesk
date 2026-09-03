@@ -233,6 +233,9 @@ importers:
 
   packages/auth:
     dependencies:
+      '@offdesk/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@offdesk/db':
         specifier: workspace:*
         version: link:../db

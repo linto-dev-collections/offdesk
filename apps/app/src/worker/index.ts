@@ -1,5 +1,5 @@
 import { createAuth } from "@offdesk/auth";
-import { HealthOutput } from "@offdesk/contract";
+import { HealthOutput, RPC_PREFIX } from "@offdesk/contract";
 import { getHealth } from "@offdesk/usecase";
 import { RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
@@ -57,12 +57,12 @@ app.on(["GET", "POST"], "/api/auth/*", (c) =>
   `matched` が false なら `next()` へ落とす——**`/rpc/*` に無い名前を
   oRPC が 404 として飲み込まず、Hono の 404 に揃える**ため。
 */
-app.use("/rpc/*", async (c, next) => {
+app.use(`${RPC_PREFIX}/*`, async (c, next) => {
   const session = await createAuth(c.env).api.getSession({
     headers: c.req.raw.headers,
   });
   const { matched, response } = await rpc.handle(c.req.raw, {
-    prefix: "/rpc",
+    prefix: RPC_PREFIX,
     context: {
       session,
       env: c.env,

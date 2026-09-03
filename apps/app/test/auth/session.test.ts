@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createAuth } from "@offdesk/auth";
+import { SESSION_CACHE_SECONDS } from "@offdesk/contract";
 import { describe, expect, it } from "vitest";
 import { signIn } from "./support.ts";
 
@@ -100,6 +101,19 @@ describe("レートリミット", () => {
     渡した options の literal 型にこの 2 つが無いので `tsc` も保証しているが、
     実行時にも見るために型を広げて読む。
   */
+  /*
+    **Cookie キャッシュの長さが `@offdesk/contract` の共有定数と一致すること。**
+
+    client の gate（`_authed.tsx`）が同じ値を `staleTime` に使っている。
+    片方だけ動かすと「サーバーはセッション切れを知っているのに client の gate が
+    通す」か、その逆になる。
+  */
+  it("cookieCache の maxAge が共有定数と一致する", async () => {
+    const options = (await createAuth(env).$context).options;
+
+    expect(options.session?.cookieCache?.maxAge).toBe(SESSION_CACHE_SECONDS);
+  });
+
   it("CSRF と Origin の検査を無効にしていない", async () => {
     const advanced: Record<string, unknown> = (await createAuth(env).$context)
       .options.advanced;

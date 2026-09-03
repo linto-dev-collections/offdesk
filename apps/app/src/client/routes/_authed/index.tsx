@@ -7,8 +7,8 @@ import { orpc } from "../../lib/orpc.ts";
 /*
   ダッシュボードの枠（P7a で中身が入る）。
 
-  `useSuspenseQuery` を使えるのは `_authed` の gate が `ensureQueryData` で
-  先に取ってあるため。**gate を外すとここが読み込み中で止まる**ので、
+  `useSuspenseQuery` を使えるのは `_authed` の gate が同じキーで先に取ってあるため
+  （`beforeLoad` の `query()`）。**gate を外すとここが読み込み中で止まる**ので、
   gate とこのクエリは対で動く。
 */
 const Dashboard = () => {

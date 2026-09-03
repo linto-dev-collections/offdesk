@@ -12,6 +12,7 @@
     "check-types": "tsc -b"
   },
   "dependencies": {
+    "@offdesk/contract": "workspace:*",
     "@offdesk/db": "workspace:*",
     "@offdesk/domain": "workspace:*",
     "better-auth": "catalog:"
