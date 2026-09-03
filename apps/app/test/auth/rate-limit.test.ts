@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import worker from "../../src/worker/index.ts";
 import { testIp } from "./support.ts";
 
-// ipAddressHeaders を外すと Better Auth はパス単位の単一バケットに落ち、
-// 1 か所が上限に当たると全員が締め出される（security.md 脅威 5）。
-// 設定値を読むだけでは分からないので、別の IP がまだ通ることを見る。
 const ORIGIN = "http://localhost:5173";
 const SIGN_IN_LIMIT = 10;
 
@@ -36,7 +33,6 @@ describe("レートリミットは IP ごとに数える", () => {
     expect((await signInSocial(ip)).status).toBe(429);
   });
 
-  // これが ipAddressHeaders の存在理由。設定を外すとここが 429 になる。
   it("別の IP は締め出されない", async () => {
     const blocked = testIp("rate-limit/blocked");
     for (let attempt = 0; attempt <= SIGN_IN_LIMIT; attempt += 1) {

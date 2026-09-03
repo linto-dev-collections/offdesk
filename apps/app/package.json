@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hugeicons/core-free-icons": "catalog:",
+    "@hugeicons/react": "catalog:",
     "@offdesk/auth": "workspace:*",
     "@offdesk/contract": "workspace:*",
     "@offdesk/db": "workspace:*",

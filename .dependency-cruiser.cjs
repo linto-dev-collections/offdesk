@@ -38,6 +38,10 @@ module.exports = {
           "(^|/)alchemy[.]run[.]ts$",
           // TanStack Router の生成物。
           "(^|/)routeTree[.]gen[.]ts$",
+          // `packages/ui/src/hooks` は `components/ui` からしか使われず、あちらは
+          // 上の exclude でグラフから外れている。**入ってくる辺が消えるので必ず孤児になる。**
+          // 手で書いた hook を足したときも見逃すが、knip と biome は見ている。
+          "^packages/ui/src/hooks/",
         ],
       },
       to: {},
@@ -197,7 +201,17 @@ module.exports = {
   options: {
     doNotFollow: { path: "node_modules" },
     exclude: {
-      path: ["node_modules", "\\.wrangler", "dist", "\\.alchemy", "\\.turbo"],
+      path: [
+        "node_modules",
+        "\\.wrangler",
+        "dist",
+        "\\.alchemy",
+        "\\.turbo",
+        // `shadcn add` の生成物。**編集禁止なので、依存の向きを指摘しても直せない。**
+        // 置き場を `components/ui` に分けてあるのは、この 1 行で丸ごと外せるようにするため
+        // （`components/block` は手で書くので検査に残す）。biome と knip も同じ境界で外している。
+        "^packages/ui/src/components/ui/",
+      ],
     },
     // 必須。これが無いと `import type` が見えず、要件 I-12 が止めたいものがそのまま通り抜ける（型だけの import でも境界は越えている）。
     tsPreCompilationDeps: true,

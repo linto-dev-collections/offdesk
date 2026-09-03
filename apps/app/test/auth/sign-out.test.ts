@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import worker from "../../src/worker/index.ts";
 import { signIn, testIp } from "./support.ts";
 
-// /api/auth/sign-out は POST 専用。window.location.href で開くと GET になり
-// 404 になる（P1 §9-9）。GET が 200 に変われば CSRF の口なので、そのときも見直す。
 const ORIGIN = "http://localhost:5173";
 
 const signOut = async (
@@ -40,7 +38,6 @@ describe("POST /api/auth/sign-out", () => {
     expect((await signOut("POST", headers)).status).toBe(200);
   });
 
-  // Cookie を消すだけだと、同じトークンを控えた別端末でまだ入れる。
   it("sessions の行が消える", async () => {
     const { headers } = await signIn();
     expect(await sessionCount()).toBe(1);

@@ -31,9 +31,13 @@
       "entry": ["alchemy.run.ts"]
     },
     "packages/ui": {
-      "entry": ["src/lib/*.ts", "src/components/*.tsx"],
+      // `src/components/ui` は `shadcn add` の生成物で編集禁止なので、knip の対象から丸ごと外す。
+      // **knip はこの ignore に「Remove from ignore」の hint を出すが、従ってはいけない。**
+      // あれは「ファイル単位の指摘なら exports マップ経由で既に到達可能だから不要」という判断で、
+      // 依存の宣言漏れ（`ui/` が未宣言の package を import した場合）はこの 1 行だけが止める（実測）。
+      "entry": ["src/lib/*.ts", "src/hooks/*.ts", "src/components/block/*.tsx"],
       "project": ["src/**/*.{ts,tsx}"],
-      "ignoreDependencies": ["@hugeicons/core-free-icons", "@hugeicons/react"]
+      "ignore": ["src/components/ui/**"]
     },
     "packages/usecase": {
       "project": ["src/**/*.ts"]
