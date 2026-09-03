@@ -1,9 +1,15 @@
+import { createAuth } from "@offdesk/auth";
 import { HealthOutput } from "@offdesk/contract";
 import { getHealth } from "@offdesk/usecase";
+import { RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
-import { type AppBindings, assertEnv } from "./env.ts";
+import { type AppBindings, assertEnv, type WorkerEnv } from "./env.ts";
+import { router } from "./rpc/router.ts";
 
 const app = new Hono<AppBindings>();
+
+// 契約から組んだハンドラは env を持たないのでモジュールスコープで 1 度作れる。
+const rpc = new RPCHandler(router);
 
 /*
   **バインディングと環境変数の検査を、どのルートより先に置く。**
@@ -33,7 +39,60 @@ app.use("*", async (c, next) => {
 */
 app.get("/api/health", (c) => c.json(HealthOutput.parse(getHealth())));
 
-export default app;
+/*
+  Better Auth の口。**oRPC より前に置く**（`/api/auth/*` を先に取る）。
+  Google Cloud Console のリダイレクト URI もこのパスを指している。
+*/
+app.on(["GET", "POST"], "/api/auth/*", (c) =>
+  createAuth(c.env).handler(c.req.raw),
+);
+
+/*
+  oRPC（要件 `I-8`・`V-4`）。
+
+  **セッションの解決は素の Hono ミドルウェアで先に済ませ、oRPC には解決済みの値だけ渡す。**
+  oRPC のミドルウェアで解決すると、契約の外にある Better Auth の都合が
+  手続きの型に混ざる。
+
+  `matched` が false なら `next()` へ落とす——**`/rpc/*` に無い名前を
+  oRPC が 404 として飲み込まず、Hono の 404 に揃える**ため。
+*/
+app.use("/rpc/*", async (c, next) => {
+  const session = await createAuth(c.env).api.getSession({
+    headers: c.req.raw.headers,
+  });
+  const { matched, response } = await rpc.handle(c.req.raw, {
+    prefix: "/rpc",
+    context: {
+      session,
+      env: c.env,
+      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    },
+  });
+  return matched ? c.newResponse(response.body, response) : next();
+});
+
+/*
+  **cron を宣言したら `scheduled` も出す。** 出さないと Cloudflare は 5 分ごとに
+  `Handler does not export a scheduled() function` を記録し続ける
+  （P8 まで 8 フェーズぶん、本当のエラーがその中に埋もれる）。
+
+  **中身は P8 で入れる。** それまで何もしないのが正しい状態なので、
+  ログも出さない（5 分ごとの出力は本当のエラーを埋もれさせる方に働く）。
+*/
+const scheduled: ExportedHandlerScheduledHandler<WorkerEnv> = () => {};
+
+/*
+  **`fetch` と `scheduled` を持つオブジェクトを default export する。**
+
+  `satisfies` を使うのは**形の検査だけを効かせて `app.fetch` の型を保つ**ため。
+  `:` で型注釈すると `fetch` が `ExportedHandlerFetchHandler`（引数 3 つが必須）に
+  置き換わり、`app.fetch(request, env)` の 2 引数呼び出し（テストが使う形）が通らない。
+*/
+export default {
+  fetch: app.fetch,
+  scheduled,
+} satisfies ExportedHandler<WorkerEnv>;
 
 /*
   Gateway の DO（P4 で中身を入れる）。

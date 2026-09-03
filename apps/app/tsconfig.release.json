@@ -1,0 +1,15 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    // ソースとビルド成果物を読むので node の型。**worker の型は入れない。**
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/types/release",
+    "rootDir": "./test/release",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.release.tsbuildinfo"
+  },
+  "include": ["test/release/**/*.ts"]
+}

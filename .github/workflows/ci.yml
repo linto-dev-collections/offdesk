@@ -65,9 +65,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-          # P0 は Worker へ渡す環境変数が 0 個。フェーズごとにここへ足す。
-          # 足す名前の正本は apps/app/src/worker/env.ts の PRODUCTION_REQUIRED_ENV_NAMES（alchemy.run.ts に同じ写しがある）。
-          #   P1  BETTER_AUTH_SECRET / BETTER_AUTH_URL / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ALLOWED_LOGIN_EMAILS
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ vars.BETTER_AUTH_URL }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          AUTH_ALLOWED_EMAILS: ${{ vars.AUTH_ALLOWED_EMAILS }}
           #   P2  DISCORD_BOT_TOKEN / DISCORD_PUBLIC_KEY / DISCORD_APPLICATION_ID / OWNER_DISCORD_USER_ID / FIRE_TOKEN_ENCRYPTION_KEY
           #   P3a MCP_BEARER_TOKEN
           #   P6  PLAN_LINK_SIGNING_KEY

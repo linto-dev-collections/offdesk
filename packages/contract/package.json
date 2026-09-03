@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@orpc/contract": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

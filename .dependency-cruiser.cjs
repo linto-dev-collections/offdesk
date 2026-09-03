@@ -28,6 +28,8 @@ module.exports = {
           "(^|/)tsconfig[.]json$",
           "(^|/)tsconfig[.][a-z]+[.]json$",
           "(^|/)(?:vite|vitest|drizzle|knip)[.]config[.](?:js|cjs|mjs|ts|cts|mts|json)$",
+          // `vitest.release.config.ts` のような環境別の設定。プールごとに 1 本ある。
+          "(^|/)vitest[.][a-z]+[.]config[.]ts$",
           // テストファイルは vitest が直接読むエントリ。
           "[.]test[.]tsx?$",
           // setupFiles も vitest が直接読むエントリ。
@@ -59,15 +61,30 @@ module.exports = {
         "@offdesk/db は D1 バインディングを、@offdesk/usecase と @offdesk/domain は" +
         "port の宣言と業務規則を、@offdesk/infra は Cloudflare の資格情報を握る。" +
         "クライアントが必要とするのは契約だけなので、共有したいスキーマは " +
-        "@offdesk/contract へ移す（要件 I-8）。",
+        "@offdesk/contract へ移す（要件 I-8）。" +
+        "**@offdesk/auth はここに入れず client-no-auth-server でファイル単位に絞る** — " +
+        "あのパッケージだけは client 用の入口（./client）を持つため。",
       severity: "error",
       from: { path: "^apps/app/src/client/" },
       to: {
         path: [
-          "^packages/(db|auth|usecase|domain|infra)/",
-          "^@offdesk/(db|auth|usecase|domain|infra)($|/)",
+          "^packages/(db|usecase|domain|infra)/",
+          "^@offdesk/(db|usecase|domain|infra)($|/)",
         ],
       },
+    },
+    {
+      name: "client-no-auth-server",
+      comment:
+        "apps/app/src/client から @offdesk/auth のサーバー面（`.` ＝ src/index.ts）への " +
+        "import を禁止する。あちらは BETTER_AUTH_SECRET と GOOGLE_CLIENT_SECRET、" +
+        "そして D1 バインディングに到達する。クライアントが使うのは " +
+        "@offdesk/auth/client（createAuthClient だけ）で、そちらは better-auth/client " +
+        "以外を何も掴まない。**パッケージ名で丸ごと禁止できないのはこの 1 つだけ**なので、" +
+        "ファイル単位で書いてある。",
+      severity: "error",
+      from: { path: "^apps/app/src/client/" },
+      to: { path: "^packages/auth/src/index[.]ts$" },
     },
     {
       name: "ui-no-app-packages",

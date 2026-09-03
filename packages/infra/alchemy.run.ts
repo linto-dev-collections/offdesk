@@ -75,12 +75,31 @@ const varOf = (name: string): string | undefined => {
   return raw === undefined || raw === "" ? undefined : raw;
 };
 
+const secretOf = (name: string) => {
+  const value = varOf(name);
+  return value === undefined ? undefined : alchemy.secret(value, name);
+};
+
+const optionalBindings = <T>(
+  values: Readonly<Record<string, T | undefined>>,
+): Readonly<Record<string, T>> =>
+  Object.fromEntries(
+    Object.entries(values).filter(
+      (entry): entry is [string, T] => entry[1] !== undefined,
+    ),
+  );
+
 /*
   唯一の定義は `apps/app/src/worker/env.ts` の同名の配列で、ここはその写し
   （このファイルは Alchemy CLI の直接のエントリなので Worker のコードを import しない）。
   **2 つが一致していることは P8 の `env-required` テストが検査する。**
 */
-const PRODUCTION_REQUIRED_ENV_NAMES: readonly string[] = [];
+const PRODUCTION_REQUIRED_ENV_NAMES: readonly string[] = [
+  // P1（認証）
+  "BETTER_AUTH_URL",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+];
 
 // Worker 側の `assertEnv` は「動いてから」の検査なので、デプロイそのものは防げない。
 // **1 つ見つけて止めるのではなく全部数える**（1 つずつ落とすと直しては落ちるを繰り返す）。
@@ -95,6 +114,22 @@ if (isProd) {
         "\n空文字は未設定として扱います（.env.example を写したままの値は通りません）。",
     );
   }
+}
+
+const betterAuthSecret = secretOf("BETTER_AUTH_SECRET");
+if (betterAuthSecret === undefined) {
+  throw new Error(
+    "BETTER_AUTH_SECRET が未設定です（openssl rand -base64 32）。\n" +
+      "ローカルは apps/app/.env.local、CI は gh secret set で設定してください。",
+  );
+}
+
+const authAllowedEmails = varOf("AUTH_ALLOWED_EMAILS");
+if (authAllowedEmails === undefined) {
+  throw new Error(
+    "AUTH_ALLOWED_EMAILS が未設定です。ログインを許すメールを `,` 区切りで設定してください。\n" +
+      "**空のまま deploy すると誰もログインできません**（要件 I-2 により空 ＝ 全拒否）。",
+  );
 }
 
 const app = await alchemy("offdesk", {
@@ -200,11 +235,14 @@ export const web = await Vite("app", {
     DB: db,
     PLANS: plans,
     GATEWAY: gateway,
-    /*
-      **prod 以外にだけ「ローカル扱い」の目印を渡す。** Worker の `assertEnv` はこれが
-      `"true"` でなければ本番として扱う。目印を本番側に置く形にすると、その 1 個を
-      渡し忘れた本番が検査を素通りする——未設定＝厳しい側に倒す（fail-closed）。
-    */
+    // 値はコードに書かない。ローカルは apps/app/.env.local、CI は GitHub の secret から。
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    AUTH_ALLOWED_EMAILS: authAllowedEmails,
+    ...optionalBindings<string | ReturnType<typeof alchemy.secret>>({
+      BETTER_AUTH_URL: varOf("BETTER_AUTH_URL"),
+      GOOGLE_CLIENT_ID: varOf("GOOGLE_CLIENT_ID"),
+      GOOGLE_CLIENT_SECRET: secretOf("GOOGLE_CLIENT_SECRET"),
+    }),
     ...(isProd ? {} : { LOCAL_DEV: "true" }),
   },
   // **バインディングを増やしたら 3 か所を揃える** — ここ・`apps/app/wrangler.jsonc`

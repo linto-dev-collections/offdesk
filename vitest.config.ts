@@ -13,6 +13,8 @@ export default defineConfig({
       "packages/contract/vitest.config.ts",
       "packages/domain/vitest.config.ts",
       "apps/app/vitest.config.ts",
+      // リリース前の関門（P1 §5）。設定ファイルとソースそのものを読むので node プール。
+      "apps/app/vitest.release.config.ts",
     ],
   },
 });

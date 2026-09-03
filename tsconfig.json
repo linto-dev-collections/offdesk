@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/auth" },
     { "path": "./packages/contract" },
     { "path": "./packages/domain" },
     { "path": "./packages/usecase" },

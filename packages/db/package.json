@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "check-types": "tsc -b"
+    "check-types": "tsc -b",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "drizzle-orm": "catalog:"
@@ -15,6 +17,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@offdesk/config": "workspace:*",
+    "drizzle-kit": "catalog:",
     "typescript": "catalog:"
   }
 }

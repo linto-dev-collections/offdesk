@@ -3,9 +3,12 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./components/theme-provider.tsx";
+import { queryClient } from "./lib/query.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
-const router = createRouter({ routeTree });
+// `queryClient` を文脈に渡すのは `_authed.tsx` の gate が beforeLoad から
+// クエリを引くため（コンポーネントの外なので hooks が使えない）。
+const router = createRouter({ routeTree, context: { queryClient } });
 
 declare module "@tanstack/react-router" {
   interface Register {

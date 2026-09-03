@@ -25,6 +25,24 @@ export type WorkerEnv = {
   /** Discord Gateway の常駐接続（要件 F-E）。**1 つだけ。** */
   GATEWAY: DurableObjectNamespace;
 
+  /** セッション Cookie とトークンの署名鍵。**全ステージで必須。** */
+  BETTER_AUTH_SECRET: string;
+  /**
+   * 公開オリジン。Cookie の `Secure` 判定と Origin 検査に使う。
+   *
+   * **本番で既定値へ倒さない**（要件 `F-G6`）。localhost のまま本番に出ると
+   * 「ログインは通るのに状態変更 API が全部 403」という最も分かりにくい壊れ方をする。
+   */
+  BETTER_AUTH_URL: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  /**
+   * ログインを許すメール（`,` 区切り）。
+   *
+   * **空なら誰も通さない**（要件 `I-2`）。空文字どうしが一致して全開になる形を作らない。
+   */
+  AUTH_ALLOWED_EMAILS: string;
+
   /**
    * ローカル開発・結合テストの目印。**本番では bind しない。**
    *
@@ -52,8 +70,12 @@ export type WorkerEnv = {
  * **P0 は 0 個。フェーズごとにここと alchemy.run.ts の 2 か所へ同時に足す**
  * （どちらか片方だけ足すと、デプロイは通るのに起動時に落ちる／その逆になる）。
  */
-export const PRODUCTION_REQUIRED_ENV_NAMES =
-  [] as const satisfies readonly (keyof WorkerEnv)[];
+export const PRODUCTION_REQUIRED_ENV_NAMES = [
+  // P1（認証）
+  "BETTER_AUTH_URL",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+] as const satisfies readonly (keyof WorkerEnv)[];
 
 /** Hono の型パラメータ。 */
 export type AppBindings = {
@@ -90,6 +112,14 @@ export function assertEnv(env: Partial<WorkerEnv>): void {
   if (env.DB === undefined) missing.push("DB");
   if (env.PLANS === undefined) missing.push("PLANS");
   if (env.GATEWAY === undefined) missing.push("GATEWAY");
+
+  /*
+    **全ステージで必須の 2 つ。** ローカルでも本物の Google OAuth を踏む約束なので
+    （迂回路を作らない）、無ければローカルでも落とす。
+    残り 3 つ（`BETTER_AUTH_URL` / `GOOGLE_*`）は本番だけ必須で、下で見る。
+  */
+  if (isBlank(env.BETTER_AUTH_SECRET)) missing.push("BETTER_AUTH_SECRET");
+  if (isBlank(env.AUTH_ALLOWED_EMAILS)) missing.push("AUTH_ALLOWED_EMAILS");
 
   /*
     ここから下は本番だけの検査。ローカル（`LOCAL_DEV=true`）は後続フェーズの
