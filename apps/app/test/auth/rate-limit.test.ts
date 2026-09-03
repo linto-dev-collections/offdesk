@@ -1,0 +1,45 @@
+import { env } from "cloudflare:workers";
+import { describe, expect, it } from "vitest";
+import worker from "../../src/worker/index.ts";
+import { testIp } from "./support.ts";
+
+const ORIGIN = "http://localhost:5173";
+const SIGN_IN_LIMIT = 10;
+
+const signInSocial = async (ip: string): Promise<Response> =>
+  await worker.fetch(
+    new Request(`${ORIGIN}/api/auth/sign-in/social`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: ORIGIN,
+        "cf-connecting-ip": ip,
+      },
+      body: JSON.stringify({ provider: "google", callbackURL: "/" }),
+    }),
+    env,
+  );
+
+describe("レートリミットは IP ごとに数える", () => {
+  it("上限までは通り、超えると 429 になる", async () => {
+    const ip = testIp("rate-limit/over");
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < SIGN_IN_LIMIT; attempt += 1) {
+      statuses.push((await signInSocial(ip)).status);
+    }
+
+    expect(statuses).toEqual(Array(SIGN_IN_LIMIT).fill(200));
+    expect((await signInSocial(ip)).status).toBe(429);
+  });
+
+  it("別の IP は締め出されない", async () => {
+    const blocked = testIp("rate-limit/blocked");
+    for (let attempt = 0; attempt <= SIGN_IN_LIMIT; attempt += 1) {
+      await signInSocial(blocked);
+    }
+    expect((await signInSocial(blocked)).status).toBe(429);
+
+    expect((await signInSocial(testIp("rate-limit/other"))).status).toBe(200);
+  });
+});

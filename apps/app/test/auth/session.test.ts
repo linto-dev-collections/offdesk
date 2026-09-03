@@ -87,6 +87,9 @@ describe("レートリミット", () => {
     **`cf-connecting-ip` を見ていること。** 指定しないと Better Auth は
     `x-forwarded-for` を探し、Workers には届かないので**全利用者が 1 つの
     バケットを共有する**（1 回の失敗で全員が 60 秒締め出される）。
+
+    ここは「そう書いてある」ことしか言わない**速い信号**で、
+    **保証しているのは `rate-limit.test.ts`**（別の IP がまだ通ることを実際に見る）。
   */
   it("ipAddressHeaders が cf-connecting-ip になっている", async () => {
     const options = (await createAuth(env).$context).options;

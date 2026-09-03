@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { MeOutput } from "@offdesk/contract";
 import { describe, expect, it } from "vitest";
 import worker from "../../src/worker/index.ts";
-import { OWNER_NAME, signIn } from "../auth/support.ts";
+import { OWNER_NAME, signIn, testIp } from "../auth/support.ts";
 
 const ORIGIN = "http://localhost:5173";
 
@@ -10,6 +10,8 @@ const callMe = async (headers: Headers = new Headers()): Promise<Response> => {
   const requestHeaders = new Headers(headers);
   requestHeaders.set("content-type", "application/json");
   requestHeaders.set("origin", ORIGIN);
+  // 本番では Cloudflare が必ず付ける。付けないとレートリミットが共有バケットに落ちる。
+  requestHeaders.set("cf-connecting-ip", testIp("rpc/me"));
   return await worker.fetch(
     new Request(`${ORIGIN}/rpc/me`, {
       method: "POST",
@@ -68,7 +70,11 @@ describe("/rpc の外は oRPC が飲み込まない", () => {
     const response = await worker.fetch(
       new Request(`${ORIGIN}/rpc/does-not-exist`, {
         method: "POST",
-        headers: { "content-type": "application/json", origin: ORIGIN },
+        headers: {
+          "content-type": "application/json",
+          origin: ORIGIN,
+          "cf-connecting-ip": testIp("rpc/unknown"),
+        },
         body: "{}",
       }),
       env,

@@ -22,6 +22,25 @@ import { env } from "cloudflare:workers";
 export const OWNER_EMAIL = "offdesk.me@gmail.com";
 export const OWNER_NAME = "offdesk owner";
 
+/**
+ * テスト用のクライアント IP。
+ *
+ * **本番のリクエストには Cloudflare が必ず `cf-connecting-ip` を付ける**
+ * （本番のログで実測済み）。テストで付けないと Better Auth が
+ * 「IP を解決できないので単一の共有バケットに落とす」と警告し、
+ * **レートリミットの検査が本番と違う経路を通る。**
+ *
+ * 種文字列から決まる値にしてあるのは、テストごとにバケットを分けるため
+ * （同じファイル内でレートリミットの状態が持ち越される）。
+ */
+export const testIp = (seed: string): string => {
+  let hash = 0;
+  for (const character of seed) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return `10.${(hash >>> 16) & 255}.${(hash >>> 8) & 255}.${hash & 255}`;
+};
+
 const SESSION_LIFETIME_MS = 60 * 60 * 1000;
 
 /** `better-auth/crypto` の `makeSignature` と同じ。向こうが変えたらここが落ちる。 */
