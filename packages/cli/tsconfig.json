@@ -1,0 +1,19 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    // 運用スクリプトなので Node の型。**ここに Worker の型を入れない** —
+    // このパッケージは D1 も R2 も触らず、本番の Worker に HTTP で話すだけ。
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    // Node が直接読むエントリなので型だけ検査する（packages/infra と同じ形）。
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -16,6 +16,7 @@
     "@offdesk/auth": "workspace:*",
     "@offdesk/contract": "workspace:*",
     "@offdesk/db": "workspace:*",
+    "@offdesk/domain": "workspace:*",
     "@offdesk/usecase": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",

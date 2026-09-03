@@ -101,6 +101,23 @@ const PRODUCTION_REQUIRED_ENV_NAMES: readonly string[] = [
   "GOOGLE_CLIENT_SECRET",
 ];
 
+/*
+  **宣言はするが、未設定でもデプロイを止めない**（P2）。欠けたときに落ちるのは
+  それを使う入口だけ（`apps/app/src/worker/env.ts` の同名の配列に対応表がある）。
+
+  ここに並べてあるのは「渡し忘れると Discord 経路が黙って動かない」一覧としての価値
+  のため。**`env-required` テストが `.env.example` と `ci.yml` との食い違いを見張る。**
+*/
+const ENDPOINT_GATED_ENV_NAMES: readonly string[] = [
+  // P2（Discord と起動）
+  "DISCORD_BOT_TOKEN",
+  "DISCORD_PUBLIC_KEY",
+  "DISCORD_APPLICATION_ID",
+  "OWNER_DISCORD_USER_ID",
+  "OFFDESK_TOKEN",
+  "FIRE_TOKEN_KEY",
+];
+
 // Worker 側の `assertEnv` は「動いてから」の検査なので、デプロイそのものは防げない。
 // **1 つ見つけて止めるのではなく全部数える**（1 つずつ落とすと直しては落ちるを繰り返す）。
 if (isProd) {
@@ -112,6 +129,21 @@ if (isProd) {
       `本番デプロイに必要な環境変数が ${missing.length} 個未設定です:\n` +
         missing.map((name) => `  - ${name}`).join("\n") +
         "\n空文字は未設定として扱います（.env.example を写したままの値は通りません）。",
+    );
+  }
+}
+
+/*
+  **止めずに知らせる。** これらが欠けても他の面（ログイン・画面）は動くので
+  デプロイは通すが、「Discord が黙って動かない」に後から気付くのは高い。
+*/
+if (isProd) {
+  const gated = ENDPOINT_GATED_ENV_NAMES.filter(
+    (name) => varOf(name) === undefined,
+  );
+  if (gated.length > 0) {
+    console.warn(
+      `未設定のまま deploy します（該当の入口だけが止まります）: ${gated.join(", ")}`,
     );
   }
 }
@@ -242,6 +274,14 @@ export const web = await Vite("app", {
       BETTER_AUTH_URL: varOf("BETTER_AUTH_URL"),
       GOOGLE_CLIENT_ID: varOf("GOOGLE_CLIENT_ID"),
       GOOGLE_CLIENT_SECRET: secretOf("GOOGLE_CLIENT_SECRET"),
+      // P2。**未設定でもデプロイは通る**（`ENDPOINT_GATED_ENV_NAMES` の理由を参照）。
+      DISCORD_BOT_TOKEN: secretOf("DISCORD_BOT_TOKEN"),
+      // 公開鍵は秘密ではないが、値を Alchemy の状態ファイルに平文で残さない側に揃える。
+      DISCORD_PUBLIC_KEY: varOf("DISCORD_PUBLIC_KEY"),
+      DISCORD_APPLICATION_ID: varOf("DISCORD_APPLICATION_ID"),
+      OWNER_DISCORD_USER_ID: varOf("OWNER_DISCORD_USER_ID"),
+      OFFDESK_TOKEN: secretOf("OFFDESK_TOKEN"),
+      FIRE_TOKEN_KEY: secretOf("FIRE_TOKEN_KEY"),
     }),
     ...(isProd ? {} : { LOCAL_DEV: "true" }),
   },

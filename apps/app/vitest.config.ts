@@ -45,6 +45,22 @@ export default defineConfig({
           GOOGLE_CLIENT_ID: "test-google-client-id",
           GOOGLE_CLIENT_SECRET: "test-google-client-secret",
           AUTH_ALLOWED_EMAILS: "offdesk.me@gmail.com",
+
+          /*
+            P2 の Discord 経路。**ここで固定しないと `.env.local` の本物が入り、
+            テストが本番の Discord と Anthropic を叩きうる。**
+
+            `DISCORD_PUBLIC_KEY` は空にしてある —— 既定を「未設定」にしておけば、
+            503 を返す経路（要件 I-2）が既定で通り、鍵を要るテストだけが
+            `withEnv` で自分の鍵を差す。
+          */
+          DISCORD_BOT_TOKEN: "test-discord-bot-token",
+          DISCORD_PUBLIC_KEY: "",
+          DISCORD_APPLICATION_ID: "test-application-id",
+          OWNER_DISCORD_USER_ID: "111111111111111111",
+          OFFDESK_TOKEN: "test-offdesk-token-0123456789abcdef",
+          // base64 の 32 バイト（AES-256）。テスト専用の固定値。
+          FIRE_TOKEN_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         },
       },
     })),

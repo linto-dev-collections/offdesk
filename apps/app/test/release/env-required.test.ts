@@ -30,20 +30,26 @@ const readSource = (relative: string): string =>
  * **`= [` で区切るのが要点。** `[^[]*\[` にすると `readonly string[]` の
  * `[` を先に掴んでしまい、空配列が返って**テストが常に通る**（実測で踏んだ）。
  */
-const requiredNamesIn = (source: string): readonly string[] => {
-  const block = /PRODUCTION_REQUIRED_ENV_NAMES[^=]*=\s*\[([\s\S]*?)\]/.exec(
+const namesIn = (source: string, constant: string): readonly string[] => {
+  const block = new RegExp(`${constant}[^=]*=\\s*\\[([\\s\\S]*?)\\]`).exec(
     source,
   );
   if (block?.[1] === undefined) {
-    throw new Error("PRODUCTION_REQUIRED_ENV_NAMES の宣言が見つかりません");
+    throw new Error(`${constant} の宣言が見つかりません`);
   }
   return [...block[1].matchAll(/"([A-Z0-9_]+)"/g)].map(
     (match) => match[1] ?? "",
   );
 };
 
-const workerNames = requiredNamesIn(readSource("apps/app/src/worker/env.ts"));
-const infraNames = requiredNamesIn(readSource("packages/infra/alchemy.run.ts"));
+const WORKER_ENV = readSource("apps/app/src/worker/env.ts");
+const INFRA = readSource("packages/infra/alchemy.run.ts");
+
+const workerNames = namesIn(WORKER_ENV, "PRODUCTION_REQUIRED_ENV_NAMES");
+const infraNames = namesIn(INFRA, "PRODUCTION_REQUIRED_ENV_NAMES");
+
+const workerGated = namesIn(WORKER_ENV, "ENDPOINT_GATED_ENV_NAMES");
+const infraGated = namesIn(INFRA, "ENDPOINT_GATED_ENV_NAMES");
 
 describe("本番で必須の環境変数の一覧", () => {
   it("env.ts と alchemy.run.ts で一致する", () => {
@@ -52,6 +58,45 @@ describe("本番で必須の環境変数の一覧", () => {
 
   it("空でない（P1 以降は必ず何か入っている）", () => {
     expect(workerNames.length).toBeGreaterThan(0);
+  });
+});
+
+/*
+  **宣言はするが `assertEnv` では要求しない一覧**（P2）。
+  欠けたときに落ちるのは入口だけなので `assertEnv` に入れないが、
+  **渡し忘れると Discord 経路が黙って動かない**ので、一覧としては揃えて見張る。
+*/
+describe("入口で fail-closed にする環境変数の一覧", () => {
+  it("env.ts と alchemy.run.ts で一致する", () => {
+    expect(infraGated).toEqual(workerGated);
+  });
+
+  it("空でない（P2 以降は必ず何か入っている）", () => {
+    expect(workerGated.length).toBeGreaterThan(0);
+  });
+
+  /*
+    **2 つの一覧が重ならないこと。** 重なると `assertEnv` が必須として数えて
+    しまい、「1 つ足りないだけで全リクエストが 500」に戻る。
+  */
+  it("必須の一覧と重なっていない", () => {
+    for (const name of workerGated) {
+      expect(workerNames).not.toContain(name);
+    }
+  });
+
+  it("alchemy.run.ts が bindings に渡している", () => {
+    for (const name of workerGated) {
+      expect(INFRA).toMatch(
+        new RegExp(`${name}: (var|secret)Of\\("${name}"\\)`),
+      );
+    }
+  });
+
+  it("WorkerEnv に型として宣言されている", () => {
+    for (const name of workerGated) {
+      expect(WORKER_ENV).toMatch(new RegExp(`${name}: string;`));
+    }
   });
 });
 
@@ -97,10 +142,20 @@ describe(".env.example に名前が並んでいる", () => {
 
     for (const name of [
       ...workerNames,
+      ...workerGated,
       "BETTER_AUTH_SECRET",
       "AUTH_ALLOWED_EMAILS",
     ]) {
       expect(example).toContain(name);
+    }
+  });
+
+  /** **コメントアウトされたままにしない。** `# NAME=` は設定した気にさせる。 */
+  it("コメントアウトされていない", () => {
+    const example = readSource("apps/app/.env.example");
+
+    for (const name of [...workerNames, ...workerGated]) {
+      expect(example).toMatch(new RegExp(`^${name}=`, "m"));
     }
   });
 
@@ -109,6 +164,7 @@ describe(".env.example に名前が並んでいる", () => {
 
     for (const name of [
       ...workerNames,
+      ...workerGated,
       "BETTER_AUTH_SECRET",
       "AUTH_ALLOWED_EMAILS",
     ]) {

@@ -1,0 +1,21 @@
+{
+  "name": "@offdesk/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc -b",
+    "commands:register": "node src/register-commands.ts",
+    "projects:sync": "node src/sync-projects.ts",
+    "routine:prompt": "node src/print-routine-prompt.ts"
+  },
+  "dependencies": {
+    "@offdesk/contract": "workspace:*",
+    "@offdesk/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@offdesk/config": "workspace:*",
+    "@types/node": "^24.10.1",
+    "typescript": "catalog:"
+  }
+}

@@ -12,6 +12,8 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@offdesk/domain": "workspace:*",
+    "@paralleldrive/cuid2": "catalog:",
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {

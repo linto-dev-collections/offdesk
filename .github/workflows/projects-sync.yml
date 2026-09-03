@@ -1,0 +1,74 @@
+name: projects sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 送らずに、送る内容とトークンの通りだけ見る
+        type: boolean
+        default: true
+      register_commands:
+        description: 投入のあとに /offdesk を Discord へ登録し直す
+        type: boolean
+        default: false
+      guild_id:
+        description: 登録先のサーバー id（空ならグローバル。伝播に時間がかかる）
+        type: string
+        default: ""
+
+concurrency:
+  group: projects-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: projects.json を用意する
+        env:
+          PROJECTS_JSON: ${{ secrets.PROJECTS_JSON }}
+        run: |
+          if [ -z "${PROJECTS_JSON}" ]; then
+            echo "secrets.PROJECTS_JSON が空です。gh secret set PROJECTS_JSON < projects.json" >&2
+            exit 1
+          fi
+          printf '%s' "${PROJECTS_JSON}" > projects.json
+
+      - name: 投入する
+        env:
+          OFFDESK_URL: ${{ vars.OFFDESK_URL }}
+          OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pnpm projects:sync -- --dry-run
+          else
+            pnpm projects:sync
+          fi
+
+      - name: /offdesk を登録し直す
+        if: inputs.register_commands && inputs.dry_run == false
+        env:
+          OFFDESK_URL: ${{ vars.OFFDESK_URL }}
+          OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.guild_id }}" ]; then
+            pnpm commands:register -- --guild "${{ inputs.guild_id }}"
+          else
+            pnpm commands:register
+          fi
+
+      - name: 後始末
+        if: always()
+        run: rm -f projects.json

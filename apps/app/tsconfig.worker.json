@@ -17,6 +17,7 @@
     { "path": "../../packages/auth" },
     { "path": "../../packages/contract" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/domain" },
     { "path": "../../packages/usecase" }
   ]
 }

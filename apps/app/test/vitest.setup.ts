@@ -14,6 +14,11 @@ import { beforeAll, beforeEach } from "vitest";
  * そちらを足すときにこの並びが FK の向きの一覧になる。
  */
 const TABLES_CHILD_FIRST = [
+  // offdesk 所有（全部 RESTRICT なので、この並びが FK の向きの一覧になる）。
+  "runs",
+  "project_fire_credentials",
+  "projects",
+  // BetterAuth 所有（CASCADE を持つが、順序に頼らず明示する）。
   "sessions",
   "accounts",
   "verifications",

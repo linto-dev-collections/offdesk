@@ -31,3 +31,6 @@ plans
 
 # docs
 docs
+
+# プロジェクト設定の正本（fire トークンが入る。projects.example.json が形）
+projects.json

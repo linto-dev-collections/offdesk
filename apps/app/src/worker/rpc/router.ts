@@ -1,4 +1,6 @@
 import { contract } from "@offdesk/contract";
+import { createDb, listProjectsWithMask } from "@offdesk/db";
+import { listProjectSummaries } from "@offdesk/usecase";
 import { implement, ORPCError } from "@orpc/server";
 import type { RpcContext } from "./context.ts";
 
@@ -15,4 +17,13 @@ export const router = os.router({
     name: context.session.user.name,
     imageUrl: context.session.user.image ?? null,
   })),
+  projects: {
+    list: authed.projects.list.handler(async ({ context }) => {
+      const db = createDb(context.env.DB);
+      const items = await listProjectSummaries({
+        listWithMask: () => listProjectsWithMask(db),
+      });
+      return { items: [...items] };
+    }),
+  },
 });

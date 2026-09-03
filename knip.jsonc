@@ -14,6 +14,11 @@
       "entry": ["src/cli/*.ts"],
       "project": ["src/**/*.ts"]
     },
+    "packages/cli": {
+      // entry は package.json の scripts から knip が自分で拾う（明示すると
+      // 「冗長」と hint が出る）。project だけ絞って、置き忘れたファイルを拾わせる。
+      "project": ["src/**/*.ts"]
+    },
     "packages/config": {
       "entry": [],
       "project": []

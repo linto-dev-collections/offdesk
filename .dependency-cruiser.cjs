@@ -106,6 +106,25 @@ module.exports = {
       },
     },
     {
+      name: "cli-is-http-only",
+      comment:
+        "packages/cli から db / auth / usecase / infra への import を禁止する。" +
+        "運用スクリプトは**本番の Worker に HTTP で話すだけ**で、D1 にも鍵にも触らない。" +
+        "ここで @offdesk/db を掴むと、暗号化を手元で行うことになり " +
+        "FIRE_TOKEN_KEY を開発機と CI にも配ることになる（要件 F-H2 は「鍵は Worker " +
+        "secret に置き、復号は Worker の中だけ」と定めている。2026-09-04 の決定）。" +
+        "投入の形は packages/contract の Zod が持ち、Worker 側の投入口が同じものを見る。",
+      severity: "error",
+      from: { path: "^packages/cli/" },
+      to: {
+        path: [
+          "^packages/(db|auth|usecase|infra)/",
+          "^@offdesk/(db|auth|usecase|infra)($|/)",
+          "^(drizzle-orm|better-auth|hono|alchemy)($|/)",
+        ],
+      },
+    },
+    {
       name: "contract-is-terminal",
       comment:
         "packages/contract は依存の終着点（要件 I-8）。矢印は必ず contract に向かい、" +

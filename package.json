@@ -9,6 +9,7 @@
   "scripts": {
     "build": "turbo build",
     "check-types": "turbo check-types",
+    "commands:register": "pnpm -F @offdesk/cli commands:register",
     "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs",
     "deploy": "pnpm -F @offdesk/infra deploy",
     "destroy": "pnpm -F @offdesk/infra destroy",
@@ -17,6 +18,8 @@
     "format:ci": "biome ci .",
     "infra:dev": "pnpm -F @offdesk/infra infra:dev",
     "knip": "knip",
+    "projects:sync": "pnpm -F @offdesk/cli projects:sync",
+    "routine:prompt": "pnpm -F @offdesk/cli routine:prompt",
     "test": "vitest run",
     "test:watch": "vitest"
   },
