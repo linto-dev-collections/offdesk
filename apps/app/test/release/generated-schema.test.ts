@@ -13,8 +13,7 @@ import { describe, expect, it } from "vitest";
     2. ここ —— **再生成して差分が出ないことを確かめる**
 
   1 だけだと「整形はされないが人が編集できる」ので、2 が要る。
-  差分が出たら、`auth generate` を回して出た結果を commit する
-  （手で直した内容は捨てる。それが「生成物」の意味）。
+  差分が出たら、`auth generate` を回して出た結果を commit する（手で直した内容は捨てる。それが「生成物」の意味）。
 */
 
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
@@ -25,8 +24,7 @@ const readSchema = (): string => readFileSync(SCHEMA_PATH, "utf8");
 /**
  * 宣言されている表名。
  *
- * **改行に依存させない。** 索引を持つ表は `sqliteTable(\n  "sessions",` と
- * 複数行で出るので、`sqliteTable("sessions"` を探すと見つからない（実測で踏んだ）。
+ * 改行に依存させない。索引を持つ表は `sqliteTable(\n  "sessions",` と複数行で出るので、`sqliteTable("sessions"` を探すと見つからない（実測で踏んだ）。
  */
 const tableNamesIn = (schema: string): readonly string[] =>
   [...schema.matchAll(/sqliteTable\(\s*"([a-z_]+)"/g)].map(

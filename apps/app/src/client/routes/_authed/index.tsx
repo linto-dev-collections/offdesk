@@ -1,3 +1,4 @@
+import { authClient } from "@offdesk/auth/client";
 import { formatJst } from "@offdesk/contract";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -11,6 +12,25 @@ import { orpc } from "../../lib/orpc.ts";
   （`beforeLoad` の `query()`）。**gate を外すとここが読み込み中で止まる**ので、
   gate とこのクエリは対で動く。
 */
+
+/**
+ * ログアウト。
+ *
+ * **`authClient.signOut()` を使う。** `/api/auth/sign-out` は **POST 専用**なので、
+ * `window.location.href` で開くと GET になり **404** になる（P1 §9-9 で踏んだ）。
+ * 認証の口は URL を手書きせず、必ず `authClient` を通す。
+ *
+ * **SPA 遷移ではなく全体を読み直す。** gate の `staleTime` は 5 分なので、
+ * SPA 遷移だとキャッシュに残った `me`（200）で**セッションが無いのに
+ * gate が通ってしまう。** 全体を読み直せばメモリ上の状態が全部消えるので、
+ * 「何を消し忘れたか」を考えなくてよい——ログアウトの意味にも合っている。
+ */
+const signOut = (): void => {
+  void authClient.signOut().finally(() => {
+    window.location.assign("/login");
+  });
+};
+
 const Dashboard = () => {
   const { data: me } = useSuspenseQuery(orpc.me.queryOptions());
 
@@ -20,13 +40,7 @@ const Dashboard = () => {
         <h1 className="font-medium">offdesk</h1>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-muted-foreground">{me.email}</span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              window.location.href = "/api/auth/sign-out";
-            }}
-          >
+          <Button size="sm" variant="outline" onClick={signOut}>
             ログアウト
           </Button>
         </div>
