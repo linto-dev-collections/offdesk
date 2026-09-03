@@ -11,7 +11,6 @@
       "ignoreDependencies": ["cloudflare"]
     },
     "packages/auth": {
-      // `src/cli/schema.ts` は `auth generate` が直接読むエントリ。
       "entry": ["src/cli/*.ts"],
       "project": ["src/**/*.ts"]
     },

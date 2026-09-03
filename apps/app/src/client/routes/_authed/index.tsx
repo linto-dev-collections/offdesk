@@ -5,6 +5,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { orpc } from "../../lib/orpc.ts";
 
+// 認証の口は URL を手書きせず authClient を通す（sign-out は POST 専用。P1 §9-9）。
+// 全体を読み直すのは、gate の staleTime 5 分ぶんキャッシュに残った me で
+// セッションが無いのに通ってしまうのを防ぐため。
+// .then() なのは、失敗したログアウトを成功に見せないため（signOut は throw する）。
 const signOut = (): void => {
   void authClient.signOut().then(() => {
     window.location.assign("/login");
