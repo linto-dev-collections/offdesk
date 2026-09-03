@@ -1,0 +1,38 @@
+{
+  "name": "app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check-types": "tsc -b",
+    "dev": "vite",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@offdesk/contract": "workspace:*",
+    "@offdesk/db": "workspace:*",
+    "@offdesk/usecase": "workspace:*",
+    "@tanstack/react-router": "catalog:",
+    "@workspace/ui": "workspace:*",
+    "hono": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "catalog:",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@offdesk/config": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "drizzle-orm": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

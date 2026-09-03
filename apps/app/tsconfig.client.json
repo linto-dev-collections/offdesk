@@ -1,0 +1,25 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // **Worker 専用の型（D1Database 等）をここに入れない。** これが
+    // plans/security.md 脅威 4 の 1 層目で、client から D1 や R2 の API を
+    // そもそも掴めなくする。
+    "types": ["vite/client"],
+    "jsx": "react-jsx",
+    // 相対 import に `.ts` / `.tsx` を明示する規約にしている（計画 README §2-3）。
+    // 拡張子を書けば、解決の仕組み（Vite / tsc / depcruise）が違っても同じ 1 本を指す。
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/types/client",
+    "rootDir": "./src/client",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.client.tsbuildinfo"
+  },
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx"],
+  // **ここに db / usecase / domain を入れない。** 入れた時点で 1 層目が無効になる。
+  "references": [
+    { "path": "../../packages/ui" },
+    { "path": "../../packages/contract" }
+  ]
+}

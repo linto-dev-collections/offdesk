@@ -1,0 +1,27 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    // `cloudflare:test` の型はここだけに入れる。本番の worker プロジェクトへ入れると
+    // テスト専用 API が本番コードから見えてしまう。
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/vitest-pool-workers/types"
+    ],
+    // 相対 import に `.ts` / `.tsx` を明示する規約にしている（計画 README §2-3）。
+    // 拡張子を書けば、解決の仕組み（Vite / tsc / depcruise）が違っても同じ 1 本を指す。
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/types/test",
+    "rootDir": "./test",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
+  },
+  "include": ["test/**/*.ts"],
+  "references": [
+    { "path": "./tsconfig.worker.json" },
+    { "path": "../../packages/contract" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/usecase" }
+  ]
+}

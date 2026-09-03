@@ -1,0 +1,16 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    // 空にすることが「契約が実行環境を知らない」の 2 段目の防御になる。
+    // depcruise は import 文を見るが、グローバル型（D1Database 等）の混入は見られない。
+    "types": [],
+    // 相対 import に `.ts` を明示する規約にしている（計画 README §2-3）。
+    // 拡張子を書けば、解決の仕組み（Vite / tsc / depcruise / Node）が違っても同じ 1 本を指す。
+    "allowImportingTsExtensions": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"]
+}

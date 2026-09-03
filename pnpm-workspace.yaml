@@ -1,7 +1,79 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - apps/*
+  - packages/*
 
+# ネイティブバイナリを取得する postinstall だけを許可する（pnpm の既定は全拒否）。
+# ここに無いパッケージのビルドスクリプトは走らない＝供給網の攻撃面を絞る（plans/security.md 脅威 13）。
 allowBuilds:
+  "@biomejs/biome": true
   esbuild: true
-  msw: false
+  workerd: true
+  # alchemy が依存グラフに持ち込む画像処理。ネイティブバイナリの取得が要る。
+  sharp: true
+
+# 依存の宣言漏れを補う（yarn 互換の設定）。
+packageExtensions:
+  # **alchemy は undici を dependencies に宣言していないのに実行時に import する。**
+  #
+  #   packages/.../alchemy/lib/util/safe-fetch.js
+  #     const { Agent } = await import("undici");
+  #
+  # 宣言が無いと pnpm の hoisted fallback に落ちて 8 系が解決されることがあり、Cloudflare API を叩く最初の 1 回で `UND_ERR_INVALID_ARG` で落ちる（undici 8 は新形式の `onRequestStart` を要求する。7 系は新旧どちらも受ける）。
+  # 上流が宣言を足したら（0.94.0 は 0.x 系の最終版なので当面来ない）この節は消せる。
+  alchemy:
+    dependencies:
+      undici: ^7.29.0
+
+catalog:
+  # **キャレット無しで完全固定。** npm の latest は 2.0.0-beta（Effect ベースの作り直し）を指すので、素直に上げると別 API が入る（要件 §10-1）。
+  alchemy: 0.94.0
+  "@base-ui/react": ^1.7.0
+  "@cloudflare/vite-plugin": ^1.54.3
+  "@cloudflare/vitest-pool-workers": ^0.22.0
+  "@cloudflare/workers-types": ^5.20260903.1
+  "@fontsource-variable/inter": ^5.3.0
+  "@hugeicons/core-free-icons": ^4.3.0
+  "@hugeicons/react": ^1.1.10
+  "@orpc/client": ^1.15.0
+  "@orpc/server": ^1.15.0
+  "@orpc/tanstack-query": ^1.15.0
+  "@paralleldrive/cuid2": ^3.3.0
+  "@tailwindcss/vite": ^4.3.3
+  "@tanstack/react-query": ^5.102.8
+  "@tanstack/react-router": ^1.170.32
+  "@tanstack/router-plugin": ^1.168.35
+  "@types/react": ^19.2.18
+  "@types/react-dom": ^19.2.4
+  "@vitejs/plugin-react": ^6.1.1
+  better-auth: ^1.7.2
+  class-variance-authority: ^0.7.1
+  clsx: ^2.1.1
+  drizzle-kit: ^0.31.10
+  drizzle-orm: ^0.45.2
+  github-slugger: ^2.0.0
+  hono: ^4.13.5
+  marked: ^18.0.11
+  react: ^19.2.8
+  react-dom: ^19.2.8
+  tailwind-merge: ^3.6.0
+  tailwindcss: ^4.3.3
+  tw-animate-css: ^1.4.0
+  # **6 系（＝ npm の latest は 7 系）を採らない。** スキャフォールドは `~6` を入れるが、Workers の型・Drizzle・oRPC の実績が 5.9 に集まっている（要件 §10-1）。
+  typescript: ~5.9.3
+  vite: ^8.2.2
+  vitest: ^4.1.11
+  wrangler: ^4.128.0
+  zod: ^4.5.4
+
+minimumReleaseAgeExclude:
+  - '@biomejs/biome@2.5.12'
+  - '@biomejs/cli-darwin-arm64@2.5.12'
+  - '@biomejs/cli-darwin-x64@2.5.12'
+  - '@biomejs/cli-linux-arm64-musl@2.5.12'
+  - '@biomejs/cli-linux-arm64@2.5.12'
+  - '@biomejs/cli-linux-x64-musl@2.5.12'
+  - '@biomejs/cli-linux-x64@2.5.12'
+  - '@biomejs/cli-win32-arm64@2.5.12'
+  - '@biomejs/cli-win32-x64@2.5.12'
+  - '@cloudflare/workers-types@5.20260903.1'
+  - shadcn@4.20.1

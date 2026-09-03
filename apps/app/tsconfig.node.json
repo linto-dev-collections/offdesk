@@ -1,0 +1,15 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    // 相対 import に `.ts` / `.tsx` を明示する規約にしている（計画 README §2-3）。
+    // 拡張子を書けば、解決の仕組み（Vite / tsc / depcruise）が違っても同じ 1 本を指す。
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/types/node",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
+  },
+  "include": ["vite.config.ts", "vitest.config.ts"]
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "exclude": ["exports", "types", "catalog"],
+  "workspaces": {
+    ".": {
+      "ignoreDependencies": ["@offdesk/config"]
+    },
+    "apps/app": {
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts"],
+      "ignore": ["src/client/routeTree.gen.ts"],
+      "ignoreDependencies": ["cloudflare"]
+    },
+    "packages/config": {
+      "entry": [],
+      "project": []
+    },
+    "packages/contract": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/db": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/domain": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/infra": {
+      "entry": ["alchemy.run.ts"]
+    },
+    "packages/ui": {
+      "entry": ["src/lib/*.ts", "src/components/*.tsx"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["@hugeicons/core-free-icons", "@hugeicons/react"]
+    },
+    "packages/usecase": {
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

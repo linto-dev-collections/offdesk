@@ -1,0 +1,16 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    // 空にすることが `domain-is-pure` の 2 段目の防御になる。
+    // depcruise は import 文を見るが、グローバル型（D1Database 等）の混入は見られない。
+    "types": [],
+    // CLI（P2 の projects:sync）が Node の型ストリッピングでこのパッケージを
+    // 直接読むため、相対 import に `.ts` を書けるようにする（ESM は拡張子を省略できない）。
+    "allowImportingTsExtensions": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"]
+}

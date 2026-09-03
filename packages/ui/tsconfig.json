@@ -1,17 +1,16 @@
 {
+  "extends": "@offdesk/config/tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "types": [],
     "jsx": "react-jsx",
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "paths": {
-      "@workspace/ui/*": ["./src/*"]
-    }
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    // このパッケージの中身はほぼ shadcn CLI の生成物で、手を入れない約束になっている。
+    // 生成物は使っていない `import * as React` を持って出てくることがあるので、
+    // この 1 項目だけ外す。手書きのファイルは Biome の noUnusedVariables が同じことを見る。
+    "noUnusedLocals": false
   },
-  "include": ["."],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

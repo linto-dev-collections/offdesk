@@ -1,9 +1,11 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "skipLibCheck": true,
-    "strict": true
-  }
+  "files": [],
+  "references": [
+    { "path": "./packages/contract" },
+    { "path": "./packages/domain" },
+    { "path": "./packages/usecase" },
+    { "path": "./packages/db" },
+    { "path": "./packages/ui" },
+    { "path": "./apps/app" }
+  ]
 }

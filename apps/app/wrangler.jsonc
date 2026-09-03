@@ -1,0 +1,81 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // このファイルはローカル開発専用です。
+  // デプロイ時のリソースとバインディングは packages/infra/alchemy.run.ts が正本で、
+  // `pnpm deploy` はこのファイルを読みません（Alchemy が自前の設定を生成します）。
+  // ここを変えたら alchemy.run.ts にも同じ変更を入れてください（要件 N-10）。
+  "name": "offdesk",
+  "main": "./src/worker/index.ts",
+  // **`@cloudflare/vitest-pool-workers` 0.22.0 が持つ workerd が受け付ける最大の日付。**
+  // これより新しい日付にすると `pnpm test` が起動時にこう落ちる（実測）:
+  //   This Worker requires compatibility date "2026-09-01", but the newest date
+  //   supported by this server binary is "2026-08-22".
+  // pool は自前で wrangler 4.124.0（workerd 1.20260815.1）を持つので、
+  // ワークスペースの wrangler を上げても解決しない。**pool を上げてから日付を上げる。**
+  // packages/infra/alchemy.run.ts の compatibilityDate と同じ値にする。
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+  "assets": {
+    "directory": "./dist/client",
+    // SPA なので、アセットに無いパスは index.html を返す（クライアント側でルーティング）。
+    "not_found_handling": "single-page-application",
+    // **拡張子を持たない GET が SPA フォールバックに吸われて API が index.html を
+    // 返す事故を防ぐ。** alchemy.run.ts の run_worker_first と同じ一覧にする。
+    //
+    //   /api/*      生存確認と管理画面の REST（P0・P7）
+    //   /rpc/*      oRPC（P1）
+    //   /mcp        MCP（P3a）
+    //   /hooks/*    Claude Code の hooks（P5）
+    //   /plans/*    実装計画のアップロード（P6）
+    //   /p/*        実装計画の閲覧（P6）
+    //   /discord/*  Discord の interaction（P2）
+    //   /gateway/*  Gateway の状態（P4）
+    "run_worker_first": [
+      "/api/*",
+      "/rpc/*",
+      "/mcp",
+      "/hooks/*",
+      "/plans/*",
+      "/p/*",
+      "/discord/*",
+      "/gateway/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "offdesk-db",
+      // ローカル（miniflare）ではこの値が保存先ファイルのキーになるだけで、
+      // Cloudflare 上の実 DB を指しません。変えると別の空 DB に切り替わります。
+      // 本番の DB は Alchemy が作成・管理するので、ここに本物の UUID は入れません。
+      "database_id": "local-only-not-a-real-database",
+      "migrations_dir": "../../packages/db/src/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PLANS",
+      // ローカル（miniflare）ではこの名前が保存先のキーになるだけ。
+      "bucket_name": "offdesk-plans"
+    }
+  ],
+  // Discord Gateway の常駐接続（要件 F-E）。**1 つだけ。**
+  // class_name は src/worker/index.ts が export するクラス名と一致させる。
+  "durable_objects": {
+    "bindings": [{ "name": "GATEWAY", "class_name": "DiscordGatewayDO" }]
+  },
+  // **migrations はローカルの wrangler.jsonc にだけ書く。**
+  // 本番は Alchemy がバインディングから自動で組む（0.94.0 の worker.js が
+  // durableObjects を見て migrationTag を振る）。
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DiscordGatewayDO"] }],
+  // **時刻は UTC。** 5 分ごとなので JST の考慮は要らない。
+  // alchemy.run.ts の crons と同じ値にする（P8 の cron-consistency テストが突き合わせる）。
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    // ローカル開発・結合テストの目印。**本番には渡さない**（alchemy.run.ts）。
+    // assertEnv はこれが "true" でなければ本番として扱う（fail-closed）。
+    "LOCAL_DEV": "true"
+  }
+}

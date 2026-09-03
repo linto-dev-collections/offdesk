@@ -1,22 +1,33 @@
 {
   "name": "offdesk",
-  "version": "0.0.1",
   "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
-    "lint": "turbo lint",
-    "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "check-types": "turbo check-types",
+    "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs",
+    "deploy": "pnpm -F @offdesk/infra deploy",
+    "destroy": "pnpm -F @offdesk/infra destroy",
+    "dev": "turbo dev --filter=app",
+    "format": "biome check --write .",
+    "format:ci": "biome ci .",
+    "infra:dev": "pnpm -F @offdesk/infra infra:dev",
+    "knip": "knip",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "prettier": "^3.8.3",
-    "prettier-plugin-tailwindcss": "^0.8.0",
-    "turbo": "^2.9.18",
-    "typescript": "~6"
-  },
-  "packageManager": "pnpm@10.33.4",
-  "engines": {
-    "node": ">=20"
+    "@biomejs/biome": "^2.5.12",
+    "@offdesk/config": "workspace:*",
+    "@types/node": "^24.10.1",
+    "dependency-cruiser": "^18.2.0",
+    "knip": "^6.34.0",
+    "turbo": "^2.10.12",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

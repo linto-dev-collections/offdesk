@@ -1,0 +1,21 @@
+{
+  "name": "@offdesk/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc -b",
+    "deploy": "alchemy deploy",
+    "destroy": "alchemy destroy",
+    "infra:dev": "alchemy dev"
+  },
+  "dependencies": {
+    "alchemy": "catalog:",
+    "dotenv": "^17.2.2"
+  },
+  "devDependencies": {
+    "@offdesk/config": "workspace:*",
+    "@types/node": "^24.10.1",
+    "typescript": "catalog:"
+  }
+}

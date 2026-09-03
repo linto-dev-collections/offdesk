@@ -1,0 +1,19 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    // Alchemy CLI が直接読むエントリなので型だけ検査する。
+    // `composite: false` にしているので、ルートの tsconfig からは参照しない。
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    // 何も emit しないので、turbo に見せる成果物は .tsbuildinfo だけになる
+    // （`outputs` に何も無いと turbo が毎回警告を出す）。
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+  },
+  "include": ["alchemy.run.ts"]
+}
