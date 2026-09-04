@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-payload="$(cat)"
+payload="$(cat || true)"
 
 url="${OFFDESK_URL:-}"
 token="${OFFDESK_TOKEN:-}"
 [ -n "$url" ] || exit 0
 [ -n "$token" ] || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
 url="${url%/}"
 
-event="$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null)"
-transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)"
+event="$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null || true)"
+agent="$(printf '%s' "$payload" | jq -r '.agent_id // empty' 2>/dev/null || true)"
+transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
 [ -n "$event" ] || exit 0
+[ -z "$agent" ] || exit 0
 [ -f "$transcript" ] || exit 0
 
 run_key="$(grep -m1 -ohE 'OFFDESK-[0-9a-f]{16}' "$transcript" 2>/dev/null | head -1)"
 [ -n "$run_key" ] || exit 0
+
+rev_lines() {
+  if command -v tac >/dev/null 2>&1; then tac "$1"; else tail -r "$1"; fi
+}
 
 post() {
   curl -sS -m 10 -X POST "$url/hooks/$1" \
@@ -26,9 +33,13 @@ post() {
 
 case "$event" in
   PreToolUse | Stop)
-    latest="$(jq -c 'select(.message?.usage? != null)
-                     | {model: .message.model, usage: .message.usage}' \
-                  "$transcript" 2>/dev/null | tail -1)"
+    latest="$(rev_lines "$transcript" 2>/dev/null \
+      | jq -Rc 'fromjson?
+                | select(.type == "assistant")
+                | select(.message.usage != null)
+                | select(.message.model != "<synthetic>")
+                | {model: .message.model, usage: .message.usage}' 2>/dev/null \
+      | head -1 || true)"
     [ -n "$latest" ] || exit 0
 
     jq -nc --arg k "$run_key" --arg e "$event" --argjson l "$latest" \

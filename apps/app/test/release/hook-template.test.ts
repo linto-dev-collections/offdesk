@@ -4,20 +4,6 @@ import path from "node:path";
 import { newRunKey } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 
-/*
-  **`repo-template/.claude/` は「コードの外にある前提」の 1 つ**（要件 §9-1・計画 P5）。
-
-  対象リポジトリに commit されるファイルなので、ここを直しても勝手には追従しない。
-  それでも**4 つはコードと対で維持されている**:
-
-    1. `run_key` の形（`domain/ids.ts` が作る値を、スクリプトの正規表現が拾えるか）
-    2. hook の名前（`settings.json` の鍵と、スクリプトの `case` の分岐）
-    3. 送り先の path（`/hooks/context` と `/hooks/session-end`）
-    4. **`exit 0` の規律**（非ゼロで終わると Claude の動作に影響する）
-
-  **どれが壊れても症状は「残量が出ない」で同じ**なので、機械に見張らせる。
-*/
-
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
 
 const readSource = (relative: string): string =>
@@ -38,7 +24,6 @@ const SETTINGS = JSON.parse(
   >;
 };
 
-/** スクリプトを走らせる口。**標準入力が hook の JSON。** */
 const runHook = (
   stdin: string,
   envOverrides: Readonly<Record<string, string>> = {},
@@ -62,11 +47,6 @@ const runHook = (
 };
 
 describe("run_key の形がコードと対で維持されている", () => {
-  /*
-    **スクリプトは転写ログから `OFFDESK-<16hex>` を拾う。** `newRunKey` の
-    形（接頭辞・バイト数）を変えると、hook は run_key を見つけられず
-    **黙って何もしなくなる**（症状は「残量が出ない」）。
-  */
   it("newRunKey が作る値をスクリプトの正規表現が拾う", () => {
     const runKey = newRunKey((byteLength) =>
       Uint8Array.from({ length: byteLength }, (_, i) => i * 17),
@@ -77,13 +57,32 @@ describe("run_key の形がコードと対で維持されている", () => {
     expect(new RegExp(`^${pattern}$`).test(runKey)).toBe(true);
   });
 
-  /*
-    **最初の 1 件を採ることが要件。** 最後を採ると、Claude が本文に書いた
-    別の値を拾う —— P3a §10-5 の切り分けは存在しない
-    `OFFDESK-0000000000000000` を喋らせるので、実際に当たる。
-  */
   it("先頭の 1 件だけを採る", () => {
     expect(SCRIPT).toContain("grep -m1");
+  });
+});
+
+describe("読む行を絞っている", () => {
+  it("assistant の行だけを見る", () => {
+    expect(SCRIPT).toContain('select(.type == "assistant")');
+  });
+
+  it("<synthetic> の行を外す", () => {
+    expect(SCRIPT).toContain('.message.model != "<synthetic>"');
+  });
+
+  it("転写ログを後ろから読む", () => {
+    expect(SCRIPT).toContain("tac");
+    expect(SCRIPT).toContain("tail -r");
+  });
+
+  it("agent_id があれば何もしない", () => {
+    expect(SCRIPT).toContain("agent_id");
+    expect(SCRIPT).toMatch(/\[ -z "\$agent" \] \|\| exit 0/);
+  });
+
+  it("読めない行を飛ばす（fromjson?）", () => {
+    expect(SCRIPT).toContain("fromjson?");
   });
 });
 
@@ -96,23 +95,12 @@ describe("hook の名前が settings.json と対で維持されている", () =>
     },
   );
 
-  /*
-    **`matcher` を書かない**（計画 P5 §3-6 から変えたところ）。
-    `SessionEnd` の matcher は**終了理由**に当たるので、`""` を書くと
-    完全一致の経路で**どの理由にも当たらず 1 度も鳴らない。**
-    省略すれば「毎回鳴る」になる（`Stop` は matcher 非対応で無視される）。
-  */
   it.each(["Stop", "SessionEnd"])("%s の群は matcher を持たない", (event) => {
     for (const group of SETTINGS.hooks[event] ?? []) {
       expect(group.matcher).toBeUndefined();
     }
   });
 
-  /*
-    **`SessionEnd` には明示のタイムアウトが要る。** 既定は**1.5 秒**の共有予算で、
-    スクリプトの `curl -m 10` が終わる前に打ち切られる
-    （per-hook の `timeout` を書くと予算がそこまで上がる）。
-  */
   it("SessionEnd の timeout が curl の上限より大きい", () => {
     const timeout = SETTINGS.hooks.SessionEnd?.[0]?.hooks[0]?.timeout;
 
@@ -120,11 +108,6 @@ describe("hook の名前が settings.json と対で維持されている", () =>
     expect(timeout ?? 0).toBeGreaterThan(10);
   });
 
-  /*
-    **P4 の事前承認の群を消していない。** `PreToolUse` には 2 つの群がある ——
-    offdesk のツールを allow する群（P4）と、残量を通報する群（P5）。
-    片方を消すと「承認待ちで固まる」か「残量が出ない」になる。
-  */
   it("PreToolUse に承認の群と通報の群が両方ある", () => {
     const groups = SETTINGS.hooks.PreToolUse ?? [];
 
@@ -136,11 +119,6 @@ describe("hook の名前が settings.json と対で維持されている", () =>
     expect(groups[1]?.hooks[0]?.command).toContain("offdesk-hook.sh");
   });
 
-  /*
-    **`bash` で起動する。** スクリプトを直に指定すると、実行ビットと
-    `$CLAUDE_PROJECT_DIR` の解決という失敗点が増え、**どちらを外しても
-    症状は「残量が出ない」で同じ**になる（P4 の allow フックと同じ判断）。
-  */
   it("スクリプトは bash 経由で呼ぶ", () => {
     for (const groups of Object.values(SETTINGS.hooks)) {
       for (const group of groups) {
@@ -179,12 +157,6 @@ describe("送り先が Worker の口と対で維持されている", () => {
 });
 
 describe("必ず exit 0 する", () => {
-  /*
-    **hook が非ゼロで終わると Claude の動作に影響する**（計画 P5 §3-2）。
-    通報は best-effort なので、**止めてよい理由が 1 つも無い。**
-    ここは実際に走らせて確かめる —— `set -u` を足したときに
-    「環境変数が無いと非ゼロ」が静かに戻ってくる箇所。
-  */
   it.each([
     ["空入力", "", {}],
     ["JSON ではない", "not json", {}],
@@ -213,7 +185,6 @@ describe("必ず exit 0 する", () => {
     expect(runHook(stdin, envOverrides).status).toBe(0);
   });
 
-  /** 届かない宛先でも 0（`|| true` が握っている）。 */
   it("Worker へ届かなくても 0 で終わる", () => {
     const transcript = path.join(REPO_ROOT, "package.json");
 
@@ -227,7 +198,6 @@ describe("必ず exit 0 する", () => {
     ).toBe(0);
   });
 
-  /** **標準出力に何も出さない。** 出すと hook の応答として読まれる。 */
   it("標準出力に何も出さない", () => {
     expect(
       runHook('{"hook_event_name":"Stop","transcript_path":"/nope"}').stdout,
@@ -236,13 +206,11 @@ describe("必ず exit 0 する", () => {
 });
 
 describe("トークンを漏らさない（脅威 12）", () => {
-  /** `-v` を付けると要求ヘッダが標準エラーに出る。 */
   it("curl を verbose にしていない", () => {
     expect(SCRIPT).not.toMatch(/curl[^\n]*\s-v\b/);
     expect(SCRIPT).not.toContain("--verbose");
   });
 
-  /** 転写ログのパスを送らない（offdesk 側で使い道が無い）。 */
   it("transcript_path を本文に載せない", () => {
     const payloads = SCRIPT.match(/jq -nc[\s\S]*?\|/g) ?? [];
 
