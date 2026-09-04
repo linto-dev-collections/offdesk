@@ -88,8 +88,14 @@ export const fireRoutine = async (
       },
       body: JSON.stringify({ text: input.text }),
     });
-  } catch {
-    // 例外の中身を出さない（宛先 URL が混ざる）。
+  } catch (error) {
+    // 戻り値には入れないが、**ログには残す**（`this` の取り違えとネットワーク断を
+    // 区別できないと切り分けに 1 往復かかる。P2 §9-9）。宛先 URL は載せない。
+    console.warn("[fire] fetch が例外を投げました", {
+      projectId: input.projectId,
+      error:
+        error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+    });
     return { ok: false, reason: "routine の起動に届きませんでした" };
   }
 

@@ -19,11 +19,12 @@ import { noticeMessage, startedMessage } from "../discord/components.ts";
 import type { DiscordRestConfig } from "../discord/rest.ts";
 import { createThreadFromMessage, postMessage } from "../discord/rest.ts";
 import type { WorkerEnv } from "../env.ts";
+import { outboundFetch } from "../outbound.ts";
 
 export const discordRestConfig = (env: WorkerEnv): DiscordRestConfig => ({
   botToken: env.DISCORD_BOT_TOKEN,
   applicationId: env.DISCORD_APPLICATION_ID,
-  fetch,
+  fetch: outboundFetch,
 });
 
 /**
@@ -58,7 +59,7 @@ export const launchRunWithEnv = async (
     fire: (values) =>
       fireRoutine(
         {
-          fetch,
+          fetch: outboundFetch,
           takeFireToken: (projectId) =>
             takeFireToken(db, env.FIRE_TOKEN_KEY, projectId),
         },

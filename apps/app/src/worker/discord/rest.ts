@@ -48,7 +48,18 @@ const call = async (
       headers,
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     });
-  } catch {
+  } catch (error) {
+    /*
+      **原因を残す。** 「届きませんでした」だけだと、`this` の取り違えと
+      本当のネットワーク断と不正なヘッダが区別できない（実際に 1 往復無駄にした）。
+      workerd の fetch の拒否メッセージは要求の中身を echo しないので、
+      `message` を出しても値は漏れない（P2 §9-9 で実測）。
+    */
+    console.warn("[discord] fetch が例外を投げました", {
+      path,
+      error:
+        error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+    });
     return { ok: false, reason: "Discord に届きませんでした" };
   }
 
