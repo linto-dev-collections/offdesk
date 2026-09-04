@@ -11,6 +11,14 @@ export {
   encryptFireToken,
 } from "./crypto/fire-token.ts";
 export { FIRE_TOKEN_KEY_VERSION } from "./crypto/key-version.ts";
+export type { AskRecord, InsertAskInput } from "./repositories/ask.ts";
+export {
+  answerAskByButton,
+  attachAskMessage,
+  findAsk,
+  insertAsk,
+  markAskDelivered,
+} from "./repositories/ask.ts";
 export type {
   ProjectRecord,
   ProjectWithMaskRecord,
@@ -31,8 +39,13 @@ export type {
 } from "./repositories/run.ts";
 export {
   attachRunThread,
+  findRun,
   findRunByThread,
   insertRun,
+  isTerminalStatus,
   markRunFailed,
+  markRunResumed,
   markRunRunning,
+  markRunWaiting,
+  touchRunHeld,
 } from "./repositories/run.ts";

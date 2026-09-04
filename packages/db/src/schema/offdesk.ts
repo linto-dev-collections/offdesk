@@ -13,7 +13,7 @@ import {
   offdesk 所有の表（テーブル定義書 §4）。**あちらが正本**で、生成された SQL が
   食い違ったら直すのはこちら側。
 
-  P2 で使う 3 表だけを置く。`asks` / `events` / `inbox` / `plans` は
+  P2 の 3 表と P3a の `asks` を置く。`events` / `inbox` / `plans` は
   それぞれのフェーズで足す（先に作ると使われない表が残る）。
 
   **`ON DELETE CASCADE` を 1 つも書かない**（テーブル定義書 §3-4）。D1 の
@@ -199,5 +199,95 @@ export const runs = sqliteTable(
       .on(t.threadId, t.createdAt)
       .where(sql`${t.threadId} IS NOT NULL`),
     index("runs_project_created_idx").on(t.projectId, t.createdAt),
+  ],
+);
+
+export const asks = sqliteTable(
+  "asks",
+  {
+    askId: text("ask_id").primaryKey(),
+    runKey: text("run_key")
+      .notNull()
+      .references(() => runs.runKey, {
+        onDelete: "restrict",
+        onUpdate: "restrict",
+      }),
+    question: text("question").notNull(),
+    /*
+      **選択肢は「JSON の配列であること」だけを縛る**（テーブル定義書 §4-4）。
+      中身の検証（各要素が非空で Discord のボタンの上限内か）は
+      `packages/domain/src/ask.ts` の `validateAsk` が持つ。ここで要素まで見ると
+      同じ規則が 2 か所に散る。
+    */
+    options: text("options").notNull().default("[]"),
+    allowFreeText: integer("allow_free_text").notNull().default(1),
+    messageId: text("message_id"),
+    answer: text("answer"),
+    answeredByDiscordUserId: text("answered_by_discord_user_id"),
+    answeredAt: integer("answered_at", { mode: "timestamp_ms" }),
+    answerMessageId: text("answer_message_id"),
+    deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
+    createdAt,
+  },
+  (t) => [
+    /*
+      **テーブル定義書 §4-4 の `GLOB 'ask_[0-9a-f]*'` は 5 文字目しか見ていない**
+      （末尾の `*` が残りを全部飲む。§4-1・§4-3 で直したのと同じ欠陥で、
+      §4-4 だけ直し漏れていた。2026-09-04 に D1 で実測）:
+
+        'ask_0ABCDEFGHIJKLMNO' GLOB 'ask_[0-9a-f]*'              => 1  ← 通ってしまう
+        substr('ask_0ABCDEFGHIJKLMNO', 5) NOT GLOB '*[^0-9a-f]*' => 0  ← 捕まえられる
+
+      GLOB では `_` はリテラル（LIKE と違って 1 文字のワイルドカードにならない）ので、
+      接頭辞は `'ask_*'` でそのまま書ける（実測: `'askX…' GLOB 'ask_*'` => 0）。
+    */
+    check(
+      "asks_id_shape_ck",
+      sql`${t.askId} GLOB 'ask_*'
+       AND substr(${t.askId}, 5) NOT GLOB '*[^0-9a-f]*'
+       AND length(${t.askId}) = 20`,
+    ),
+    check("asks_question_ck", sql`length(${t.question}) > 0`),
+    check(
+      "asks_options_ck",
+      sql`json_valid(${t.options}) AND json_type(${t.options}) = 'array'`,
+    ),
+    check("asks_allow_free_text_ck", sql`${t.allowFreeText} IN (0, 1)`),
+    // 回答と回答時刻は対で埋まる。片方だけ立つと、未回答の問いに答えがある形になる。
+    check(
+      "asks_answer_pair_ck",
+      sql`(${t.answer} IS NULL) = (${t.answeredAt} IS NULL)`,
+    ),
+    check(
+      "asks_answered_by_ck",
+      sql`${t.answeredByDiscordUserId} IS NULL OR ${t.answer} IS NOT NULL`,
+    ),
+    check(
+      "asks_answer_message_ck",
+      sql`${t.answerMessageId} IS NULL OR ${t.answer} IS NOT NULL`,
+    ),
+    /*
+      **「返せた」は「答えがある」を含む**（要件 `I-3`・`F-B3`）。
+      `delivered_at` が `answered_at` より先に立つと、答えが宙に浮いたまま
+      「渡した」ことになる。kanata で実際に 1 つ失われたのがこの形。
+    */
+    check(
+      "asks_delivered_ck",
+      sql`${t.deliveredAt} IS NULL OR ${t.answeredAt} IS NOT NULL`,
+    ),
+    index("asks_run_created_idx").on(t.runKey, t.createdAt),
+    /*
+      **未配達の問いを、いちばん新しいものから拾う**（要件 `F-B3`。使うのは P3b）。
+      部分索引なので配達済みの行は索引に入らず、履歴が増えても太らない。
+    */
+    index("asks_undelivered_idx")
+      .on(t.runKey, t.createdAt)
+      .where(sql`${t.deliveredAt} IS NULL`),
+    /*
+      **同じ Discord メッセージから 2 つの問いを作らない。**
+      SQLite の UNIQUE 索引は NULL を重複と見ないので、「まだ出していない」行は
+      何行でも置ける。
+    */
+    uniqueIndex("asks_message_uidx").on(t.messageId),
   ],
 );

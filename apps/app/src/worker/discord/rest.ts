@@ -10,6 +10,11 @@ export const isThreadChannel = (type: number | undefined): boolean =>
 export type MessagePayload = {
   content?: string;
   embeds?: readonly unknown[];
+  /**
+   * ボタン（P3a）。**空配列と省略は意味が違う** —— 省略は「変更なし」なので、
+   * メッセージを書き換えてボタンを消すときは必ず `[]` を渡す。
+   */
+  components?: readonly unknown[];
   flags?: number;
   allowed_mentions?: { parse: readonly string[] };
 };

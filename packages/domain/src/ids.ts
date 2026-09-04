@@ -8,3 +8,9 @@ const toHex = (bytes: Uint8Array): string =>
 
 export const newRunKey = (randomBytes: RandomBytes): string =>
   `${RUN_KEY_PREFIX}${toHex(randomBytes(RUN_KEY_RANDOM_BYTES))}`;
+
+const ASK_ID_PREFIX = "ask_";
+const ASK_ID_RANDOM_BYTES = 8;
+
+export const newAskId = (randomBytes: RandomBytes): string =>
+  `${ASK_ID_PREFIX}${toHex(randomBytes(ASK_ID_RANDOM_BYTES))}`;

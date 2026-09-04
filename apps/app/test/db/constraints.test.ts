@@ -226,3 +226,151 @@ describe("runs の CHECK", () => {
     ).resolves.toBeDefined();
   });
 });
+
+describe("asks の CHECK", () => {
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+  const ASK_ID = "ask_0123456789abcdef";
+
+  const insertAskRow = (values: Record<string, unknown>) =>
+    env.DB.prepare(
+      `INSERT INTO asks (ask_id, run_key, question, options, allow_free_text, message_id,
+                         answer, answered_by_discord_user_id, answered_at,
+                         answer_message_id, delivered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        values.ask_id ?? ASK_ID,
+        values.run_key ?? RUN_KEY,
+        values.question ?? "この方針で進めてよいですか",
+        values.options ?? '["はい","やめる"]',
+        values.allow_free_text ?? 1,
+        values.message_id ?? null,
+        values.answer ?? null,
+        values.answered_by_discord_user_id ?? null,
+        values.answered_at ?? null,
+        values.answer_message_id ?? null,
+        values.delivered_at ?? null,
+      )
+      .run();
+
+  const seed = async (): Promise<void> => {
+    await insertProject({});
+    await env.DB.prepare(
+      `INSERT INTO runs (run_key, project_id, prompt, requester_discord_user_id, channel_id)
+       VALUES (?, 'p1', 'ping', '111111111111111111', '111111111111111111')`,
+    )
+      .bind(RUN_KEY)
+      .run();
+  };
+
+  /*
+    **テーブル定義書 §4-4 の `asks_id_shape_ck` には §4-1・§4-3 と同じ欠陥があった**
+    （`GLOB 'ask_[0-9a-f]*'` の末尾の `*` が残りを全部飲むので、見ているのは 5 文字目だけ）。
+    2026-09-04 に D1 で実測して直した。**下の 2 行目がその probe。**
+
+      'ask_0ABCDEFGHIJKLMNO' GLOB 'ask_[0-9a-f]*'  => 1  ← 直す前は通っていた
+  */
+  it.each([
+    ["ask_id の接頭辞が違う", { ask_id: "run_0123456789abcdef" }],
+    ["ask_id に大文字 16 進", { ask_id: "ask_0ABCDEFGHIJKLMNO" }],
+    ["ask_id が短い", { ask_id: "ask_0123456789abcde" }],
+    ["ask_id が長い", { ask_id: "ask_0123456789abcdef0" }],
+    ["ask_id が 16 進でない", { ask_id: "ask_0123456789abcdeg" }],
+    ["question が空", { question: "" }],
+    ["options が JSON でない", { options: "はい,やめる" }],
+    ["options が配列でない（オブジェクト）", { options: '{"a":1}' }],
+    ["options が配列でない（文字列）", { options: '"はい"' }],
+    ["options が配列でない（数）", { options: "1" }],
+    ["allow_free_text が 0/1 でない", { allow_free_text: 2 }],
+    ["allow_free_text が負", { allow_free_text: -1 }],
+    ["answer だけ（時刻が無い）", { answer: "はい" }],
+    ["answered_at だけ（答えが無い）", { answered_at: 1 }],
+    ["回答者だけ（答えが無い）", { answered_by_discord_user_id: "1" }],
+    ["回答元メッセージだけ（答えが無い）", { answer_message_id: "1" }],
+    ["delivered_at だけ（答えが無い）", { delivered_at: 1 }],
+  ])("%s は入らない", async (_label, values) => {
+    await seed();
+    await expect(insertAskRow(values)).rejects.toThrow();
+  });
+
+  it("正しい値は入る", async () => {
+    await seed();
+    await expect(insertAskRow({})).resolves.toBeDefined();
+  });
+
+  it("空配列の options は入る（DDL は要素まで見ない）", async () => {
+    // 要素の検査は `validateAsk` が持つ（テーブル定義書 §4-4 の判断）。
+    await seed();
+    await expect(insertAskRow({ options: "[]" })).resolves.toBeDefined();
+  });
+
+  it("答えと時刻が揃っていれば入る", async () => {
+    await seed();
+    await expect(
+      insertAskRow({
+        answer: "はい",
+        answered_at: 1_788_427_539_205,
+        answered_by_discord_user_id: "111111111111111111",
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  /*
+    要件 `I-3`・`F-B3`。**「返せた」は「答えがある」を含む。**
+    逆順に立つと、答えが宙に浮いたまま「渡した」ことになる
+    （kanata で実際に 1 つ失われたのがこの形）。
+  */
+  it("答えがあれば delivered_at も入る", async () => {
+    await seed();
+    await expect(
+      insertAskRow({
+        answer: "はい",
+        answered_at: 1_788_427_539_205,
+        delivered_at: 1_788_427_539_300,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("居ない run の ask は入らない", async () => {
+    await seed();
+    await expect(
+      insertAskRow({ run_key: "OFFDESK-ffffffffffffffff" }),
+    ).rejects.toThrow();
+  });
+
+  /*
+    **同じ Discord メッセージから 2 つの問いを作らない**（`asks_message_uidx`）。
+    SQLite の UNIQUE 索引は NULL を重複と見ないので、
+    「まだ出していない」行は何行でも置ける。
+  */
+  it("同じ message_id の ask は 2 つ入らない", async () => {
+    await seed();
+    await insertAskRow({ message_id: "555555555555555555" });
+
+    await expect(
+      insertAskRow({
+        ask_id: "ask_fedcba9876543210",
+        message_id: "555555555555555555",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("message_id が NULL なら何行でも入る", async () => {
+    await seed();
+    await insertAskRow({});
+
+    await expect(
+      insertAskRow({ ask_id: "ask_fedcba9876543210" }),
+    ).resolves.toBeDefined();
+  });
+
+  /** FK は RESTRICT。**run を消して ask だけ残る形を作らない**（テーブル定義書 §3-4）。 */
+  it("ask が残っている run は消せない", async () => {
+    await seed();
+    await insertAskRow({});
+
+    await expect(
+      env.DB.prepare("DELETE FROM runs WHERE run_key = ?").bind(RUN_KEY).run(),
+    ).rejects.toThrow();
+  });
+});

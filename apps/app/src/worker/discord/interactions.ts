@@ -1,18 +1,36 @@
-import { createDb, listProjects } from "@offdesk/db";
-import { isOwner, projectNames, resolveProject } from "@offdesk/domain";
+import {
+  answerAskByButton,
+  createDb,
+  findAsk,
+  listProjects,
+  markRunResumed,
+} from "@offdesk/db";
+import {
+  isOwner,
+  parseAnswerCustomId,
+  projectNames,
+  resolveProject,
+} from "@offdesk/domain";
 import type { WorkerEnv } from "../env.ts";
 import { discordRestConfig, launchRunWithEnv } from "../session/launch.ts";
-import { EPHEMERAL, ephemeralNotice } from "./components.ts";
+import {
+  askAnsweredMessage,
+  EPHEMERAL,
+  ephemeralNotice,
+} from "./components.ts";
 import { editOriginalResponse } from "./rest.ts";
 
 export const COMMAND_NAME = "offdesk";
 
 const TYPE_PING = 1;
 const TYPE_APPLICATION_COMMAND = 2;
+const TYPE_MESSAGE_COMPONENT = 3;
 
 const REPLY_PONG = 1;
 const REPLY_MESSAGE = 4;
 const REPLY_DEFERRED_MESSAGE = 5;
+/** 元のメッセージを差し替える。**コンポーネント由来の interaction にしか使えない。** */
+const REPLY_UPDATE_MESSAGE = 7;
 
 type InteractionOption = { name?: string; value?: unknown };
 
@@ -23,7 +41,11 @@ export type Interaction = {
   channel?: { id?: string; type?: number; parent_id?: string };
   member?: { user?: { id?: string } };
   user?: { id?: string };
-  data?: { name?: string; options?: readonly InteractionOption[] };
+  data?: {
+    name?: string;
+    custom_id?: string;
+    options?: readonly InteractionOption[];
+  };
 };
 
 type Waitable = { waitUntil: (promise: Promise<unknown>) => void };
@@ -70,6 +92,10 @@ export const handleInteraction = async (
     return ephemeral(
       `この bot は持ち主専用です。（あなたの Discord ユーザー ID: ${userId ?? "取得できませんでした"}）`,
     );
+  }
+
+  if (interaction.type === TYPE_MESSAGE_COMPONENT) {
+    return await handleAnswerButton(interaction, env, ctx, userId ?? "");
   }
 
   if (interaction.type !== TYPE_APPLICATION_COMMAND) {
@@ -167,5 +193,65 @@ const handleCommand = async (
   return json({
     type: REPLY_DEFERRED_MESSAGE,
     data: { flags: EPHEMERAL },
+  });
+};
+
+/* ---- 回答ボタン（P3a・要件 `F-B4`） ---- */
+
+/**
+ * ボタンで答える。**押した人の持ち主判定は `handleInteraction` が済ませてある**
+ * （plans/security.md 脅威 14。全 interaction が同じ 1 つのゲートを通る）。
+ *
+ * 答えが Claude へ渡るのは**この応答ではなく、握っている `ask_human` の戻り値**。
+ * ここでやるのは台帳へ書くことと、Discord の見え方を直すことだけ。
+ */
+const handleAnswerButton = async (
+  interaction: Interaction,
+  env: WorkerEnv,
+  ctx: Waitable,
+  userId: string,
+): Promise<Response> => {
+  const action = parseAnswerCustomId(interaction.data?.custom_id);
+  if (action === null) return ephemeral("この操作には対応していません。");
+
+  const db = createDb(env.DB);
+  const ask = await findAsk(db, action.askId);
+  if (ask === null) return ephemeral("この質問は見つかりませんでした。");
+  if (ask.answer !== null) {
+    return ephemeral(`もう「${ask.answer}」と回答済みです。`);
+  }
+
+  const option = ask.options[action.index];
+  if (option === undefined) {
+    return ephemeral("この選択肢は見つかりませんでした。");
+  }
+
+  /*
+    **先に答えが入っていたら書かない**（`WHERE answer IS NULL` の 1 文）。
+    上の `ask.answer !== null` は画面のための早い道で、**競走を裁くのはこちら。**
+  */
+  const written = await answerAskByButton(
+    db,
+    ask.askId,
+    option,
+    userId,
+    Date.now(),
+  );
+  if (!written) return ephemeral("ほぼ同時に別の回答が入りました。");
+
+  /*
+    待ちが解けたので作業中に戻す（状態機械の `waiting ─▶ running`）。
+    **握りも同じことをする**が、握りが既に落ちていることがあるので両方でやる
+    （同じ状態を 2 回書くだけなので、二重に走っても壊れない）。
+  */
+  ctx.waitUntil(markRunResumed(db, ask.runKey));
+
+  /*
+    **ボタンを消して押した内容を添える**（type 7）。`editMessage` を叩かずに
+    interaction の応答で差し替えるので、REST の往復が 1 つ減る。
+  */
+  return json({
+    type: REPLY_UPDATE_MESSAGE,
+    data: askAnsweredMessage(ask.question, option),
   });
 };

@@ -15,6 +15,13 @@
       "when": 1788499577191,
       "tag": "0001_offdesk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788506024802,
+      "tag": "0002_asks",
+      "breakpoints": true
     }
   ]
 }

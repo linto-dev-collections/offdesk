@@ -10,11 +10,12 @@ import { beforeAll, beforeEach } from "vitest";
 
 /**
  * 子表から順に消す。認証 4 表は `ON DELETE CASCADE` を持つ（テーブル定義書 §2）が、
- * **順序に頼らず明示する** — offdesk 所有の 7 表（P2）は全部 `RESTRICT` なので、
+ * **順序に頼らず明示する** — offdesk 所有の 7 表は全部 `RESTRICT` なので、
  * そちらを足すときにこの並びが FK の向きの一覧になる。
  */
 const TABLES_CHILD_FIRST = [
   // offdesk 所有（全部 RESTRICT なので、この並びが FK の向きの一覧になる）。
+  "asks",
   "runs",
   "project_fire_credentials",
   "projects",

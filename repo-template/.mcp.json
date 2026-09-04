@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "offdesk": {
+      "type": "http",
+      "url": "${OFFDESK_URL}/mcp",
+      "headers": { "Authorization": "Bearer ${OFFDESK_TOKEN}" },
+      "timeout": 3600000
+    }
+  }
+}

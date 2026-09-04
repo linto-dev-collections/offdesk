@@ -113,3 +113,22 @@ export const commandInteraction = (input: {
     ],
   },
 });
+
+/**
+ * ボタンの interaction（type 3・P3a）。**`custom_id` が台帳への唯一の手掛かり。**
+ */
+export const componentInteraction = (input: {
+  readonly customId: string;
+  readonly userId?: string | null;
+  readonly messageId?: string;
+}) => ({
+  type: 3,
+  token: "interaction-token",
+  channel_id: "444444444444444444",
+  channel: { id: "444444444444444444", type: 11 },
+  message: { id: input.messageId ?? "555555555555555555" },
+  ...(input.userId === null
+    ? {}
+    : { member: { user: { id: input.userId ?? OWNER_ID } } }),
+  data: { custom_id: input.customId, component_type: 2 },
+});

@@ -61,6 +61,18 @@ export default defineConfig({
           OFFDESK_TOKEN: "test-offdesk-token-0123456789abcdef",
           // base64 の 32 バイト（AES-256）。テスト専用の固定値。
           FIRE_TOKEN_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+
+          /*
+            P3a の握り。**既定をここで潰しておく**（要件 `N-9`「時間で待つテストを
+            書かない」）。素の既定は 15 分なので、**上書きを忘れたテストが
+            15 分ハングする**——それを踏まないために、全テストの既定を短くする。
+            長さそのものを見たいテストだけが `{ ...env, ASK_HOLD_MS: "…" }` で伸ばす。
+          */
+          ASK_HOLD_MS: "300",
+          ASK_POLL_MS: "5",
+          ASK_PROGRESS_MS: "10",
+          ASK_SILENT_HOLD_MS: "150",
+          ASK_TOUCH_MS: "10",
         },
       },
     })),

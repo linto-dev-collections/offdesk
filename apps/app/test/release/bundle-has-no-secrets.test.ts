@@ -36,6 +36,17 @@ const namesIn = (file: string): readonly string[] => {
     });
 };
 
+/**
+ * **この hook は本物の build を 1 回回す。** vitest の hook の既定は 10 秒で、
+ * turbo のキャッシュが温かいときは 5 秒弱で済むが、**冷たいときは超える**
+ * （2026-09-04 に実測: 温かい 4.7 秒 / 冷たいと 10 秒超で `Hook timed out`）。
+ *
+ * **CI では必ず冷たい。** `.github/workflows/ci.yml` は `pnpm test` を `pnpm build`
+ * より先に回すので、ここが毎回最初の build になる —— 既定のままだと
+ * 「ソースを触った回だけ落ちる」当たり外れになる。
+ */
+const BUILD_TIMEOUT_MS = 180_000;
+
 beforeAll(() => {
   execFileSync("pnpm", ["-F", "app", "build"], {
     cwd: REPO_ROOT,
@@ -45,7 +56,7 @@ beforeAll(() => {
       ...Object.fromEntries(SECRET_ENV_NAMES.map((name) => [name, CANARY])),
     },
   });
-});
+}, BUILD_TIMEOUT_MS);
 
 describe("クライアントバンドル", () => {
   it("走査するファイルがある", () => {

@@ -25,15 +25,22 @@ const readSource = (relative: string): string =>
   readFileSync(path.join(REPO_ROOT, relative), "utf8");
 
 /**
- * `PRODUCTION_REQUIRED_ENV_NAMES ... = [ ... ]` の中の文字列リテラルを拾う。
+ * `const NAME ... = [ ... ]` の中の文字列リテラルを拾う。
  *
  * **`= [` で区切るのが要点。** `[^[]*\[` にすると `readonly string[]` の
  * `[` を先に掴んでしまい、空配列が返って**テストが常に通る**（実測で踏んだ）。
+ *
+ * **`const` から始めるのも要点**（2026-09-04 に踏んだ）。名前だけを錨にすると、
+ * **同じ名前が散文の中に出てきた時点で一致してしまう** —— `env.ts` の
+ * `WorkerEnv` に「`ENDPOINT_GATED_ENV_NAMES` にも入れない」という why を書いた瞬間、
+ * そこから次の `= [` までを掴んで**隣の配列を読み始めた**（一致はするので
+ * 「空で常に緑」ではなく「別の一覧と比べて常に赤」になった）。
+ * 宣言だけを錨にすれば、コメントに名前を書いても壊れない。
  */
 const namesIn = (source: string, constant: string): readonly string[] => {
-  const block = new RegExp(`${constant}[^=]*=\\s*\\[([\\s\\S]*?)\\]`).exec(
-    source,
-  );
+  const block = new RegExp(
+    `const ${constant}[^=]*=\\s*\\[([\\s\\S]*?)\\]`,
+  ).exec(source);
   if (block?.[1] === undefined) {
     throw new Error(`${constant} の宣言が見つかりません`);
   }

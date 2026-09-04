@@ -73,3 +73,88 @@ export const runRows = async (): Promise<
   ).all();
   return results as never;
 };
+
+/*
+  P3a（握り）が使う種。**run を 1 本立てて `running` にする**——
+  `queued` のままでも握れるが、実物では fire が通った後に握られるので、
+  そちらに合わせておく。
+*/
+
+export const RUN_KEY = "OFFDESK-1111111111111111";
+export const THREAD_ID = "444444444444444444";
+
+export const seedRun = async (input: {
+  readonly runKey?: string;
+  readonly projectId: string;
+  readonly channelId?: string;
+  readonly threadId?: string | null;
+  readonly status?: string;
+  readonly finishedAt?: number | null;
+  readonly heldAt?: number | null;
+}): Promise<string> => {
+  const runKey = input.runKey ?? RUN_KEY;
+  const status = input.status ?? "running";
+  /*
+    **`runs_finished_ck` は「終端 ⇔ finished_at が非 NULL」を要求する。**
+    種を作る側でここを外すと、テストが「制約違反」で落ちて本題が見えなくなる。
+  */
+  const terminal = ["done", "failed", "abandoned"].includes(status);
+  const finishedAt = terminal ? (input.finishedAt ?? Date.now()) : null;
+
+  await env.DB.prepare(
+    `INSERT INTO runs (run_key, project_id, prompt, status, requester_discord_user_id,
+                       channel_id, thread_id, held_at, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      runKey,
+      input.projectId,
+      "ping",
+      status,
+      "111111111111111111",
+      input.channelId ?? CHANNEL_ALPHA,
+      input.threadId === undefined ? THREAD_ID : input.threadId,
+      input.heldAt ?? null,
+      finishedAt,
+    )
+    .run();
+
+  return runKey;
+};
+
+export const askRows = async (): Promise<
+  readonly {
+    ask_id: string;
+    run_key: string;
+    question: string;
+    options: string;
+    allow_free_text: number;
+    message_id: string | null;
+    answer: string | null;
+    answered_by_discord_user_id: string | null;
+    answered_at: number | null;
+    answer_message_id: string | null;
+    delivered_at: number | null;
+  }[]
+> => {
+  const { results } = await env.DB.prepare(
+    `SELECT ask_id, run_key, question, options, allow_free_text, message_id, answer,
+            answered_by_discord_user_id, answered_at, answer_message_id, delivered_at
+     FROM asks ORDER BY created_at, ask_id`,
+  ).all();
+  return results as never;
+};
+
+export const runHeldAt = async (runKey: string): Promise<number | null> => {
+  const row = await env.DB.prepare("SELECT held_at FROM runs WHERE run_key = ?")
+    .bind(runKey)
+    .first<{ held_at: number | null }>();
+  return row?.held_at ?? null;
+};
+
+export const runStatus = async (runKey: string): Promise<string | null> => {
+  const row = await env.DB.prepare("SELECT status FROM runs WHERE run_key = ?")
+    .bind(runKey)
+    .first<{ status: string }>();
+  return row?.status ?? null;
+};

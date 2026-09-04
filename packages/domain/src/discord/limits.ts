@@ -4,6 +4,14 @@ export const DISCORD_EMBED_DESCRIPTION_MAX = 4_096;
 export const DISCORD_EMBED_FIELD_VALUE_MAX = 1_024;
 export const DISCORD_THREAD_NAME_MAX = 100;
 
+/* ---- コンポーネント（P3a の回答ボタン） ---- */
+
+export const DISCORD_BUTTON_LABEL_MAX = 80;
+/** `custom_id` の上限。`ans:ask_<16hex>:<index>` は 26 文字なので収まる。 */
+export const DISCORD_CUSTOM_ID_MAX = 100;
+export const DISCORD_BUTTONS_PER_ROW = 5;
+export const DISCORD_ACTION_ROWS_MAX = 5;
+
 const ELLIPSIS = "…";
 
 export const truncate = (value: string, max: number): string => {
