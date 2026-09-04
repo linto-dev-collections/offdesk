@@ -1,18 +1,3 @@
-/*
-  JSON-RPC 2.0 の封筒だけ（計画 P3a §3-1）。
-
-  **公式 SDK を使わない理由は「SSE の 1 バイト目から制御が要る」こと**なので、
-  自前で書くのはこの封筒と `hold.ts` のストリームに限る。ここに業務の判断を置かない。
-
-  MCP は 2 通りのエラーを持つ（仕様 server/tools「Error Handling」）:
-
-    プロトコルの誤り  JSON-RPC の `error`   知らないメソッド・知らないツール・引数の型
-    ツールの失敗      `result.isError: true`  業務上ありうる失敗（run が無い・問いが空）
-
-  **取り違えると Claude が回復できない。** `error` は「呼び方が間違っている」の合図なので、
-  Claude は同じ呼び方を諦める。`isError` は結果なので、Claude は文面を読んで直せる。
-*/
-
 export type JsonRpcId = string | number | null;
 
 export type JsonRpcRequest = {
@@ -45,12 +30,6 @@ export const rpcError = (
     },
   );
 
-/**
- * ツールの戻り値（1 個のテキストブロック）。
- *
- * **握りは同じ形を SSE の `data:` に載せる**ので、メッセージの組み立てと
- * HTTP 応答への包み方を分けてある。
- */
 export const toolResultMessage = (
   id: JsonRpcId,
   text: string,
@@ -70,13 +49,6 @@ export const toolResult = (
     headers: jsonHeaders,
   });
 
-/**
- * 機械が読む戻り値（`status` を持つ JSON）を 1 個のテキストブロックに載せる。
- *
- * **`structuredContent` を使わない。** あれは `outputSchema` を宣言した口の話で、
- * 宣言すると「サーバーはスキーマに従う結果を返さねばならない」（仕様）。
- * 握りは `answered` / `pending` / エラーで形が変わるので、宣言しない側に倒す。
- */
 export const toolStatus = (
   id: JsonRpcId,
   status: Readonly<Record<string, unknown>>,
