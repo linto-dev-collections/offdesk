@@ -1,19 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-
-/*
-  **`repo-template/.mcp.json` は「コードの外にある前提」の 1 つ**（要件 §9-1・計画 P3a §3-7）。
-
-  対象リポジトリに commit されるファイルなので、ここを直しても勝手には追従しない。
-  それでも**サーバー名だけはコードと対で維持されている** ——
-  `.mcp.json` の `offdesk` がツール名の `mcp__offdesk__*` を決め、
-  それが routine の `allowed_tools` と `ROUTINE_PROMPT` の本文に現れる。
-
-  **名前を変えると、症状は「承認待ちで固まる」になる**（ツールが見つからないのではなく、
-  許可されていないツールとして扱われる）。切り分けの難しい壊れ方なので、
-  4 か所が揃っていることを機械に見張らせる。
-*/
 
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
 
@@ -34,14 +22,20 @@ const TEMPLATE = JSON.parse(readSource("repo-template/.mcp.json")) as {
 
 const SERVER_NAME = "offdesk";
 
-/**
- * `.mcp.json` の `${NAME}` は **Claude Code が実行時に環境変数へ差し替えるリテラル**で、
- * こちらの文字列展開ではない。
- *
- * 素で書くと biome が `noTemplateCurlyInString` で「テンプレート文字列にしろ」と言うが、
- * **それは逆**（テンプレート文字列にすると、ここで空文字に展開されて検査が空振りする）。
- * 組み立てて比べれば、意図がコードに残る。
- */
+const TOOL_NAMES = ["ask_human", "ask_wait", "report"] as const;
+
+const SETTINGS = JSON.parse(
+  readSource("repo-template/.claude/settings.json"),
+) as {
+  permissions: { allow: readonly string[] };
+  hooks: {
+    PreToolUse: readonly {
+      matcher: string;
+      hooks: readonly { type: string; command: string }[];
+    }[];
+  };
+};
+
 const envPlaceholder = (name: string): string => `\${${name}}`;
 
 describe("repo-template/.mcp.json", () => {
@@ -53,7 +47,6 @@ describe("repo-template/.mcp.json", () => {
     const server = TEMPLATE.mcpServers[SERVER_NAME];
 
     expect(server?.type).toBe("http");
-    // **URL は環境変数から組む。** 焼き込むと検証用と本番でファイルが分かれる。
     expect(server?.url).toBe(`${envPlaceholder("OFFDESK_URL")}/mcp`);
   });
 
@@ -63,11 +56,6 @@ describe("repo-template/.mcp.json", () => {
     );
   });
 
-  /*
-    **ツールの wall-clock**（未設定なら約 28 時間）。握りは最長 15 分なので、
-    1 時間に絞っておけば「握りが落ちたのではなく上限で切れた」を区別できる。
-    **`ASK_HOLD_MS`（15 分）より大きいことが前提。**
-  */
   it("timeout が 1 時間で、握りの上限より大きい", async () => {
     const { ASK_HOLD_MS } = await import("@offdesk/domain");
 
@@ -85,10 +73,6 @@ describe("サーバー名が 3 か所で揃っている", () => {
     expect(source).toContain(`name: "${SERVER_NAME}"`);
   });
 
-  /*
-    routine のプロンプトが呼ぶツール名。**`.mcp.json` のサーバー名から決まる**ので、
-    片方だけ変えると「承認待ちで固まる」になる。
-  */
   it("ROUTINE_PROMPT が mcp__offdesk__ask_human を名指しする", async () => {
     const { ROUTINE_PROMPT } = await import("@offdesk/domain");
 
@@ -97,14 +81,44 @@ describe("サーバー名が 3 か所で揃っている", () => {
 });
 
 describe("/mcp が run_worker_first に入っている", () => {
-  /*
-    **これが無いと、拡張子を持たない POST が SPA フォールバックに吸われる。**
-    `alchemy.run.ts`（本番）と `wrangler.jsonc`（ローカル）の**両方**に要る。
-  */
   it.each([
     ["packages/infra/alchemy.run.ts", "本番"],
     ["apps/app/wrangler.jsonc", "ローカル"],
   ])("%s（%s）に /mcp がある", (file) => {
     expect(readSource(file)).toContain('"/mcp"');
+  });
+});
+
+describe("repo-template/.claude/settings.json", () => {
+  it("3 つのツールを allow に名指しする", () => {
+    expect(SETTINGS.permissions.allow).toEqual(
+      TOOL_NAMES.map((tool) => `mcp__${SERVER_NAME}__${tool}`),
+    );
+  });
+
+  it.each(TOOL_NAMES)("allow の %s が実物のツール名", (tool) => {
+    expect(readSource("apps/app/src/worker/mcp/server.ts")).toContain(
+      `name: "${tool}"`,
+    );
+  });
+
+  it("フックの matcher が offdesk のツールだけを拾う", () => {
+    expect(SETTINGS.hooks.PreToolUse.map((entry) => entry.matcher)).toEqual([
+      `mcp__${SERVER_NAME}__.*`,
+    ]);
+    expect(SETTINGS.hooks.PreToolUse[0]?.hooks[0]?.type).toBe("command");
+  });
+
+  it("フックが PreToolUse を allow する JSON を出す", () => {
+    const command = SETTINGS.hooks.PreToolUse[0]?.hooks[0]?.command ?? "";
+    const stdout = execFileSync("bash", ["-c", command], { encoding: "utf8" });
+
+    expect(JSON.parse(stdout)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: expect.any(String),
+      },
+    });
   });
 });

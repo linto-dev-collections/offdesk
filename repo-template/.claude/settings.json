@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__offdesk__ask_human",
+      "mcp__offdesk__ask_wait",
+      "mcp__offdesk__report"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__offdesk__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"offdesk は依頼者との唯一の口。routine には承認する人がいない\"}}'"
+          }
+        ]
+      }
+    ]
+  }
+}
