@@ -80,11 +80,18 @@ export class DiscordGatewayDO extends DurableObject<WorkerEnv> {
    */
   #generation = 0;
   /**
-   * 素の文の処理を**1 本ずつ**に並べる。
+   * **状態を変える仕事を 1 本ずつに並べる。**
    *
-   * 並行に走らせると、同じスレッドへ 2 行が同時に届いたときに
-   * `applyInbound` の起こし直しが 2 本同時に走り、`runs_live_thread_uidx` で
-   * 片方が落ちる。**届いた順に 1 本ずつ**なら、2 行目は 1 本目が立てた run を見る。
+   * DO は 1 度に 1 つのイベントを走らせるが、**`await` の隙間では別のイベントが
+   * 入り込む**（storage の I/O ゲートが開く）。並行に走ると:
+   *
+   * - 同じスレッドへ 2 行が同時に届いたとき、`applyInbound` の起こし直しが
+   *   2 本同時に走り、`runs_live_thread_uidx` で片方が落ちる
+   * - `alarm`（張り直し）と `/reset`（切って張る）が噛み合って、
+   *   効果（connect / disconnect）の順序が入れ替わる
+   *
+   * **受信も alarm も HTTP もここを通す。** 届いた順に 1 本ずつ流れるので、
+   * 2 行目は 1 本目が立てた run を見る。
    */
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -115,11 +122,11 @@ export class DiscordGatewayDO extends DurableObject<WorkerEnv> {
         **既に `live` なら何も起きない**（`tick` が状態を見る）。
       */
       case GATEWAY_PATH.ensure:
-        await this.#tick();
+        await this.#serial(() => this.#tick());
         return this.#statusResponse();
 
       case GATEWAY_PATH.reset:
-        return await this.#reset();
+        return await this.#serial(() => this.#reset());
 
       default:
         return new Response("not found", { status: 404 });
@@ -128,7 +135,19 @@ export class DiscordGatewayDO extends DurableObject<WorkerEnv> {
 
   /** **タイマは alarm**（要件 `F-I3`）。ハートビート・期限・バックオフの全部がここから。 */
   override async alarm(): Promise<void> {
-    await this.#tick();
+    await this.#serial(() => this.#tick());
+  }
+
+  /**
+   * `#queue` の末尾に繋いで、終わるのを待つ。
+   *
+   * **失敗で列を止めない。** 1 回の失敗を残すと、以後の要求が全部その
+   * rejection を待つ形になる（`#queue` は「順番」だけを表す）。
+   */
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.#queue.then(work);
+    this.#queue = result.catch(() => undefined);
+    return result;
   }
 
   /* ---- 入口 ---- */
@@ -345,8 +364,9 @@ export class DiscordGatewayDO extends DurableObject<WorkerEnv> {
     });
   }
 
+  /** ソケットのイベントから呼ぶ（待てないので投げっぱなしにするが、**握らない**）。 */
   #enqueue(work: () => Promise<unknown>): void {
-    this.#queue = this.#queue.then(work).catch((error: unknown) => {
+    void this.#serial(work).catch((error: unknown) => {
       // **無言で捨てない**（要件 `N-7`）。本文は出さない（脅威 12）。
       console.warn("[gateway] 受信の処理が落ちました", {
         error:

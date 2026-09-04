@@ -46,8 +46,3 @@ export const resetGatewayDO = async (): Promise<void> => {
   // 直前の `runInDurableObject` が起こしてあるので、ここでは必ず走っている。
   await evictDurableObject(stub);
 };
-
-/** メモリの状態だけを捨てる（永続分は残す）。`fatal` が evict を越えることの検査用。 */
-export const evictGatewayDO = async (): Promise<void> => {
-  await evictDurableObject(stubOf());
-};
