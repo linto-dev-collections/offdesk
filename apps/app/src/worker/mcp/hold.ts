@@ -1,4 +1,5 @@
 import {
+  type AskRecord,
   type Db,
   findAsk,
   markAskDelivered,
@@ -42,12 +43,27 @@ export type HoldInput = {
   readonly waitUntil: (promise: Promise<unknown>) => void;
   /** 省略すると「問いは既に出ている」とみなして握るだけ（P3b の拾い直しが使う）。 */
   readonly onOpen?: HoldOpener;
+  /**
+   * `delivered_at` を立てた**直後**に呼ばれる（要件 `I-3`・P4）。
+   *
+   * **ここが 👀 → ✅ の付け替え場所。** 要件 `F-C4` は「`delivered_at` を
+   * 立てるのと同じ場所で ✅ に変える」と定めているので、別の場所から呼べる
+   * 形にしない —— 片方だけ進むと印が嘘になる。
+   *
+   * Discord を知っているのは呼ぶ側（`mcp/server.ts`）で、このファイルは知らない。
+   */
+  readonly onDelivered?: (ask: AskRecord) => Promise<void>;
 };
 
+/**
+ * 上限に達したときの案内。**`ask_wait` を名指しする**（P3b で口ができた）。
+ *
+ * P3a では「握り直す口はまだない」と書いていた —— そのままだと
+ * `SERVER_INSTRUCTIONS` が `ask_wait` を勧めているのと食い違う（2026-09-04・P4 で直した）。
+ */
 const PENDING_NEXT =
   "接続を握れる上限に達しました。まだ依頼者は答えていません。" +
-  "同じ問いを握り直す口はまだないので、最も可逆な選択を採って先に進み、" +
-  "何をどう決めたかを次の ask_human に含めてください。";
+  "同じ ask_id で ask_wait を呼び直してください（Discord に質問は出したままです）。";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -112,6 +128,7 @@ export const holdForAnswer = (input: HoldInput): Response => {
             書き出す前に立てると答えが宙に浮く。**順序を入れ替えない。**
           */
           await markAskDelivered(db, askId, Date.now());
+          if (input.onDelivered !== undefined) await input.onDelivered(ask);
           // 待ちが解けたので作業中に戻す（状態機械の `waiting ─▶ running`）。
           await markRunResumed(db, runKey);
           return;

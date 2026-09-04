@@ -51,6 +51,21 @@ describe("validateAsk が通す形", () => {
   });
 });
 
+describe("選択肢が無い問い（P4 で通るようになった）", () => {
+  /*
+    **P3a では落としていた**（`MIN_ASK_OPTIONS = 1`）。答える口がボタンだけの版では、
+    選択肢 0 個の問いは誰も答えられなかった。**P4 でスレッドに素で書いた文が
+    回答になった**ので、その理由が消えた —— 「はい / いいえ」に落とせない問いを
+    出せるようになったのがこの反転。
+  */
+  it.each([
+    ["空配列", []],
+    ["省略", undefined],
+  ])("%s でも通る", (_label, options) => {
+    expect(ok("どういう方針にしますか", options).options).toEqual([]);
+  });
+});
+
 describe("validateAsk が落とす形", () => {
   /*
     **黙って切り捨てない**（計画 P3a §4）。上限を越えた入力は Claude へ返して
@@ -66,17 +81,6 @@ describe("validateAsk が落とす形", () => {
   it("問いが長すぎる", () => {
     const question = "あ".repeat(MAX_ASK_QUESTION_LENGTH + 1);
     expect(problem(question, ["はい"])).toContain("長すぎます");
-  });
-
-  /*
-    **P3a では選択肢が必須**（2026-09-04 の決定）。答える口はボタンだけで、
-    スレッドへ素で書いた文が届くのは P4。選択肢 0 個の問いは誰も答えられない。
-
-    **P4 でスレッドの口が開いたら、この 2 つを「空でも通る」に反転させる。**
-  */
-  it("選択肢が空なら落とす（P3a の判断）", () => {
-    expect(problem("q", [])).toContain("options が空");
-    expect(problem("q", undefined)).toContain("options が空");
   });
 
   it("選択肢が全部空文字なら落とす", () => {

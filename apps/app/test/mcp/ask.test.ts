@@ -188,18 +188,18 @@ describe("引数の検査", () => {
   });
 
   /*
-    **P3a では選択肢が必須**（2026-09-04 の決定）。答える口はボタンだけで、
-    スレッドへ素で書いた文が届くのは P4。選択肢 0 個の問いは誰も答えられないので、
-    **握らずに**返す（握ると上限まで待って pending を返し、行き止まりになる）。
+    **P3a では落としていた**（`MIN_ASK_OPTIONS = 1`）。答える口がボタンだけの版では
+    選択肢 0 個の問いは誰も答えられなかった。**P4 でスレッドに素で書いた文が
+    回答になったので握る** —— 「はい / いいえ」に落とせない問いを出せるようになった。
   */
-  it("選択肢が無ければ握らない", async () => {
+  it("選択肢が無くても握る（P4 で反転）", async () => {
     const runKey = await seedRun({ projectId });
 
-    const body = await notHeld({ runKey, question: "どうしますか" });
+    await held({ runKey, question: "どういう方針にしますか" });
 
-    expect(isToolError(body)).toBe(true);
-    expect(toolText(body)).toContain("options が空");
-    expect(await askRows()).toEqual([]);
+    const [row] = await askRows();
+    expect(row?.question).toBe("どういう方針にしますか");
+    expect(row?.options).toBe("[]");
   });
 
   it("選択肢が多すぎれば握らない（黙って削らない）", async () => {
@@ -217,7 +217,11 @@ describe("引数の検査", () => {
 
     P3b で拾い直しが入ったので、`(再送)` は「直前の問いを拾い直せ」の合図になった
     （`pickup.test.ts` がその経路を見る）。**ただし拾うものが無ければ本物の問いが要る** ——
-    ここが素通りすると「(再送)」だけが書かれた選択肢無しのメッセージが Discord に出る。
+    ここが素通りすると「(再送)」だけが書かれたメッセージが Discord に出る。
+
+    **P3b までは `MIN_ASK_OPTIONS = 1` が偶然これを止めていた**（`(再送)` は
+    options を持たないので検証に落ちた）。P4 で選択肢を任意にしたので、
+    いまは `isResendQuestion` の明示の検査が止めている。
   */
   it("拾う問いが無ければ (再送) でも握らない", async () => {
     const runKey = await seedRun({ projectId });
@@ -225,7 +229,7 @@ describe("引数の検査", () => {
     const body = await notHeld({ runKey, question: RESEND_QUESTION });
 
     expect(isToolError(body)).toBe(true);
-    expect(toolText(body)).toContain("options が空");
+    expect(toolText(body)).toContain("拾い直せる問いがありません");
     expect(await askRows()).toEqual([]);
   });
 

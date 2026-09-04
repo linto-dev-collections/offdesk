@@ -264,3 +264,58 @@ export const markRunResumed = async (db: Db, runKey: string): Promise<void> => {
 /** 終端かどうか（要件 §5-1）。握りは終端の run に問いを立てない（脅威 16）。 */
 export const isTerminalStatus = (status: RunStatus): boolean =>
   !(LIVE_STATUSES as readonly string[]).includes(status);
+
+/* ここから下は P4（素の文）が使う。 */
+
+/**
+ * 前の run を畳んで、同じスレッドに新しい run を立てる（要件 `I-13`・計画 P4 §3-5）。
+ *
+ * **`batch` が原子性の単位。** D1 は対話的トランザクションを持たないので、
+ * 「前を `abandoned` にする UPDATE」と「新しい INSERT」を 1 つの batch に
+ * 入れなければ `runs_live_thread_uidx` の UNIQUE 違反で通らない。
+ *
+ * **順序を入れ替えられない。** INSERT を先に置くと、その瞬間は同じ
+ * `thread_id` に生きている run が 2 本ある形になって部分ユニーク索引に落ちる。
+ * **落ちる方が 2 本立つより安い**（要件 `F-C6`「起こしすぎは取り返せない」。
+ * テーブル定義書 付録 A-2 で実測済み）。
+ *
+ * **新しい run は最初から `thread_id` を持つ。** 起こし直しは依頼者が書いた
+ * スレッドの続きなので、スレッドを立て直さない（立て直すと会話が 2 本に割れる）。
+ */
+export const abandonAndStart = async (
+  db: Db,
+  input: {
+    readonly previousRunKey: string;
+    readonly run: InsertRunInput & { readonly threadId: string };
+    readonly reason: string;
+  },
+  nowMs: number,
+): Promise<void> => {
+  await db.batch([
+    db
+      .update(runs)
+      .set({
+        status: "abandoned",
+        failureReason: input.reason,
+        finishedAt: new Date(nowMs),
+      })
+      /*
+        **終端の run は触らない。** `runs_finished_ck` は「終端 ⇔ `finished_at` が
+        非 NULL」を求めるので、既に `done` の行を `abandoned` に書き換えても
+        壊れはしないが、**終了時刻が起こし直しの時刻に上書きされる**（run 一覧の
+        所要時間が嘘になる）。生きている行だけを畳む。
+      */
+      .where(
+        and(
+          eq(runs.runKey, input.previousRunKey),
+          inArray(runs.status, LIVE_STATUSES),
+        ),
+      ),
+    db.insert(runs).values({
+      ...input.run,
+      status: "queued",
+      createdAt: new Date(nowMs),
+      updatedAt: new Date(nowMs),
+    }),
+  ]);
+};

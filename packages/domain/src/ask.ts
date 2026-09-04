@@ -15,6 +15,12 @@ import {
 
   **「✍️ 書く」ボタンを持たない**（要件 `F-B4`）。選択肢に無いことはスレッドへ
   直接書けばよく、モーダルは「同じことを 2 通りで言える口」になる。
+
+  **選択肢は任意**（P4 で `MIN_ASK_OPTIONS = 1` を外した。2026-09-04）。
+  P3a では必須にしていた —— 答える口がボタンだけの版では、選択肢 0 個の問いは
+  **誰も答えられなかった**（握って上限まで待つだけ）。**P4 でスレッドに素で
+  書いた文が回答になった**ので、その理由が消えた。「はい / いいえ」に落とせない
+  問い（「どういう方針にする？」）を出せるのがこの変更の意味。
 */
 
 /**
@@ -24,18 +30,6 @@ export const MAX_ASK_OPTIONS = Math.min(
   20,
   DISCORD_BUTTONS_PER_ROW * DISCORD_ACTION_ROWS_MAX,
 );
-
-/**
- * **P3a では選択肢が必須**（2026-09-04 の決定）。
- *
- * 答える口はボタンだけで、スレッドへ素で書いた文が Claude へ届くのは P4。
- * 選択肢が 0 個の問いは**誰も答えられない**ので、握らずに Claude へ返す
- * （握ると上限まで待って `pending` を返し、`ask_wait` は P3b なので行き止まりになる）。
- *
- * **P4 でスレッドの口が開いたらこれを 0 に戻す。** そのとき `ask.test.ts` の
- * 「選択肢が空なら拒否」を「空でも通る」に反転させる。
- */
-export const MIN_ASK_OPTIONS = 1;
 
 /** 問いは `content` に素で出る（要件 `F-B5`）。残量の 1 行（P5）の余地を残して切る。 */
 export const MAX_ASK_QUESTION_LENGTH = DISCORD_MESSAGE_MAX - 200;
@@ -51,10 +45,6 @@ export type AskValidation = ValidAsk | AskProblem;
 
 export const isAskProblem = (value: AskValidation): value is AskProblem =>
   "problem" in value;
-
-const OPTIONS_REQUIRED =
-  "options が空です。いまの offdesk で答えられる口は Discord のボタンだけなので、" +
-  "選択肢を 1 つ以上渡してください（スレッドへ素で書いた文が届くのは次の段です）。";
 
 export const validateAsk = (input: {
   readonly question: unknown;
@@ -100,8 +90,6 @@ export const validateAsk = (input: {
     }
     options.push(option);
   }
-
-  if (options.length < MIN_ASK_OPTIONS) return { problem: OPTIONS_REQUIRED };
 
   return { question, options };
 };

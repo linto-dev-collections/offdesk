@@ -20,7 +20,17 @@ export type OutboundStub = {
 
 export type RouteHandler = (call: OutboundCall) => Response;
 
-const ALLOWED_HOSTS = ["discord.com", "api.anthropic.com"];
+/**
+ * **知らない宛先が来たら落とす。** ここに足すのは「テストが替え玉を置く相手」だけ。
+ *
+ * `gateway.discord.gg` は P4 の DO が張りに行く先。**替え玉を置かないと本物の
+ * Gateway へ繋ぎに行く**（bot token を載せて）ので、一覧に入れて必ず捕まえる。
+ */
+const ALLOWED_HOSTS = [
+  "discord.com",
+  "api.anthropic.com",
+  "gateway.discord.gg",
+];
 
 /**
  * `routes` はホスト名の一部 → 応答。並び順に前方一致で探す。
@@ -77,6 +87,14 @@ export const discordOk = (ids: {
 }): RouteHandler => {
   let posted = 0;
   return (call) => {
+    /*
+      **印（P4）は 204 を返す。** 本物の `PUT/DELETE /reactions/…/@me` は本文を
+      持たないので、`{ id }` を返す替え玉にすると `call` の 204 の分岐を
+      1 度も通らない（本物より寛容な替え玉になる）。
+    */
+    if (call.url.includes("/reactions/")) {
+      return new Response(null, { status: 204 });
+    }
     if (call.url.includes("/threads")) {
       return jsonResponse({ id: ids.threadId ?? "222222222222222222" });
     }

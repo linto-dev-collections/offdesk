@@ -22,6 +22,14 @@ export type WorkerEnv = {
   ASK_SILENT_HOLD_MS?: string;
   ASK_TOUCH_MS?: string;
 
+  /*
+    素の文の「生きている」の窓（要件 `F-C6`・P4）。**2 つ別に持つ。**
+    既定は `packages/domain/src/inbound.ts`（60 秒 と 6 時間）。
+    **`assertEnv` の一覧には入れない** —— 無ければ既定で動く。
+  */
+  INBOUND_HELD_WINDOW_MS?: string;
+  INBOUND_ACTIVE_WINDOW_MS?: string;
+
   LOCAL_DEV?: string;
 };
 

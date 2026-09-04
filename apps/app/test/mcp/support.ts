@@ -78,6 +78,25 @@ export const mcpJson = async (
   return { body: parsed, response };
 };
 
+/**
+ * **1 個だけ読んで pump を歩かせ、ロックを返す。**
+ *
+ * `TransformStream` の readable 側の highWaterMark は 0 なので、
+ * **読み手が来るまで最初の `write` すら解決しない**（P3b §9-3 で実測）。
+ * これは設計として正しい —— 聞いていないクライアントのために Discord へ
+ * 投稿したりはしない。
+ *
+ * **`releaseLock` が要点。** `getReader()` はストリームを固めるので、
+ * 返さないと後で `readSse` も `body.cancel()` も
+ * `This ReadableStream is currently locked to a reader` で落ちる。
+ */
+export const nudge = async (response: Response): Promise<void> => {
+  const reader = response.body?.getReader();
+  if (reader === undefined) throw new Error("SSE の本文がありません");
+  await reader.read();
+  reader.releaseLock();
+};
+
 export type SseFrames = {
   /** `data:` で流れてきた JSON-RPC メッセージ（progress 通知と応答の両方）。 */
   readonly messages: readonly Record<string, unknown>[];

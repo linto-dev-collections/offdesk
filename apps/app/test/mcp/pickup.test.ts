@@ -19,6 +19,7 @@ import {
   finalResult,
   isToolError,
   mcpCall,
+  nudge,
   readSse,
   toolStatusOf,
   waitUntilTrue,
@@ -400,8 +401,7 @@ describe("本当に接続を切ってから呼び直す", () => {
       投稿したりはしない。テスト側は「1 個読んで pump を歩かせる → 投稿が済むのを
       条件で待つ → 切る」の順に書く必要がある。
     */
-    const reader = response.body?.getReader();
-    await reader?.read();
+    await nudge(response);
     await waitUntilTrue(
       async () => (await askRows())[0]?.message_id !== null,
       "問いが Discord に出る",
@@ -410,7 +410,7 @@ describe("本当に接続を切ってから呼び直す", () => {
     expect(created?.message_id).toBe(MESSAGE_ID);
 
     // **接続を切る。** ここから先、1 本目の握りは誰にも届かない。
-    await reader?.cancel();
+    await response.body?.cancel();
     await settle();
 
     // 2 本目: `ask_id` が手元に無いので `(再送)` で呼び直す。
@@ -460,13 +460,12 @@ describe("本当に接続を切ってから呼び直す", () => {
       }),
     );
     // 1 個読んで pump を歩かせてから、投稿が済むのを条件で待つ（上の why を参照）。
-    const reader = response.body?.getReader();
-    await reader?.read();
+    await nudge(response);
     await waitUntilTrue(
       async () => (await askRows())[0]?.message_id !== null,
       "問いが Discord に出る",
     );
-    await reader?.cancel();
+    await response.body?.cancel();
     await settle();
 
     // 握りが死んで窓を過ぎた状態にする（時間で待たずに列を直接古くする）。

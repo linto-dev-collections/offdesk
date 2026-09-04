@@ -13,8 +13,8 @@ import {
   offdesk 所有の表（テーブル定義書 §4）。**あちらが正本**で、生成された SQL が
   食い違ったら直すのはこちら側。
 
-  P2 の 3 表と P3a の `asks` を置く。`events` / `inbox` / `plans` は
-  それぞれのフェーズで足す（先に作ると使われない表が残る）。
+  P2 の 3 表・P3a の `asks`・P3b の `events`・P4 の `inbox` を置く。
+  `plans` は P6 で足す（先に作ると使われない表が残る）。
 
   **`ON DELETE CASCADE` を 1 つも書かない**（テーブル定義書 §3-4）。D1 の
   `PRAGMA defer_foreign_keys` は検査を遅らせるだけで CASCADE の発火を止めないので、
@@ -319,5 +319,59 @@ export const events = sqliteTable(
       sql`${t.kind} IN ('progress', 'done', 'blocked', 'stop_hook', 'error')`,
     ),
     index("events_run_id_idx").on(t.runKey, t.id),
+  ],
+);
+
+export const inbox = sqliteTable(
+  "inbox",
+  {
+    /** `events` と同じ理由で AUTOINCREMENT（テーブル定義書 §4-6）。id の順が届いた順。 */
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** **届いた時点で生きていた run。** 実際に渡った run は `taken_by_run_key`。 */
+    runKey: text("run_key")
+      .notNull()
+      .references(() => runs.runKey, {
+        onDelete: "restrict",
+        onUpdate: "restrict",
+      }),
+    authorDiscordUserId: text("author_discord_user_id").notNull(),
+    messageId: text("message_id"),
+    body: text("body").notNull(),
+    takenAt: integer("taken_at", { mode: "timestamp_ms" }),
+    takenByRunKey: text("taken_by_run_key").references(() => runs.runKey, {
+      onDelete: "restrict",
+      onUpdate: "restrict",
+    }),
+    createdAt,
+  },
+  (t) => [
+    check("inbox_body_ck", sql`length(${t.body}) > 0`),
+    /*
+      **「渡した時刻」と「渡した先」は対で埋まる。** 片方だけ立つと要件 `I-3` の
+      印（👀 → ✅）が嘘になる —— 渡した先が分からないまま「渡した」と言うことになる。
+    */
+    check(
+      "inbox_taken_pair_ck",
+      sql`(${t.takenAt} IS NULL) = (${t.takenByRunKey} IS NULL)`,
+    ),
+    /*
+      **未処理の文をまとめて読む**（要件 `F-C2` の「溜める」）。
+      部分索引なので、渡し終わった行は索引から落ちる。溜まっているのは常に数件。
+    */
+    index("inbox_pending_idx")
+      .on(t.runKey, t.id)
+      .where(sql`${t.takenAt} IS NULL`),
+    /*
+      **同じ Discord メッセージを 2 回積まない。** Gateway は再接続時に
+      イベントを再送しうる（resume の仕様）ので、冪等性をここで担保する ——
+      アプリ側の「見たことがあるか」の記憶に頼ると、isolate が入れ替わった瞬間に破れる。
+
+      SQLite の UNIQUE 索引は NULL を重複と見ないので、コマンド経由で
+      元メッセージが無い行（`message_id IS NULL`）は何行でも置ける。
+    */
+    uniqueIndex("inbox_message_uidx").on(t.messageId),
+    index("inbox_taken_by_idx")
+      .on(t.takenByRunKey)
+      .where(sql`${t.takenByRunKey} IS NOT NULL`),
   ],
 );

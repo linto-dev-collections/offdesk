@@ -7,20 +7,25 @@ import {
   findAsk,
   findLatestUndeliveredAsk,
   findRun,
+  type InboxRecord,
   insertAsk,
   insertEvent,
   isTerminalStatus,
   markAskDelivered,
+  markQueuedTaken,
   markRunResumed,
   markRunWaiting,
+  peekQueued,
   type RunRecord,
   touchRunActivity,
   touchRunHeld,
 } from "@offdesk/db";
 import {
+  foldInboundLines,
   isAskProblem,
   isHeldAlive,
   isReportProblem,
+  isResendQuestion,
   MAX_ASK_OPTIONS,
   newAskId,
   REPORT_KINDS,
@@ -31,6 +36,7 @@ import {
   validateReport,
 } from "@offdesk/domain";
 import { askMessage, reportMessage } from "../discord/components.ts";
+import { markHandedOff } from "../discord/marks.ts";
 import { postMessage } from "../discord/rest.ts";
 import type { WorkerEnv } from "../env.ts";
 import { discordRestConfig } from "../session/launch.ts";
@@ -73,7 +79,7 @@ import {
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const LATEST_PROTOCOL_VERSION = PROTOCOL_VERSIONS[0];
 
-const SERVER_INFO = { name: "offdesk", version: "0.3.0" } as const;
+const SERVER_INFO = { name: "offdesk", version: "0.4.0" } as const;
 
 const RUN_KEY_DESCRIPTION =
   "指示の 1 行目にある OFFDESK- で始まる値。そのまま渡すこと";
@@ -94,9 +100,10 @@ const TOOLS = [
     description:
       "判断が要ることを依頼者に確認し、答えが返るまで待つ。選択肢はボタンとして Discord に出る。" +
       "答えが返るまでこの呼び出しは戻らない（待っている間トークンは消費しない）。" +
-      `新しい問いを立てるときは options が必須（1〜${MAX_ASK_OPTIONS} 個）—— 答える口はボタンだけなので、選択肢が無い問いは誰も答えられない。` +
+      `選択肢を挙げられるなら options を渡すこと（1〜${MAX_ASK_OPTIONS} 個）—— ボタンで 1 回押すだけで答えられる。挙げられない問いは options なしでもよく、依頼者はスレッドに直接書いて答える。` +
       "「やったこと」と「次はどうするか」は 1 回にまとめること。" +
-      `接続エラーで落ちて ask_id が手元に無いときは、同じ run_key でこれを呼び直せばよい —— question は "${RESEND_QUESTION}" の 1 語でよく、options は要らない。直前の問いを握り直すか、切れている間に届いた答えを返す。質問が 2 回出ることはない。`,
+      `接続エラーで落ちて ask_id が手元に無いときは、同じ run_key でこれを呼び直せばよい —— question は "${RESEND_QUESTION}" の 1 語でよく、options は要らない。直前の問いを握り直すか、切れている間に届いた答えを返す。質問が 2 回出ることはない。` +
+      "作業中に依頼者がスレッドへ書いていた場合は、質問を出さずにその内容を返す。",
     inputSchema: {
       type: "object",
       properties: {
@@ -108,7 +115,7 @@ const TOOLS = [
         options: {
           type: "array",
           items: { type: "string" },
-          description: `選ばせたい選択肢（1〜${MAX_ASK_OPTIONS} 個）。ボタンのラベルになる。拾い直すときは要らない`,
+          description: `選ばせたい選択肢（1〜${MAX_ASK_OPTIONS} 個）。ボタンのラベルになる。挙げられないときは省略してよい（依頼者がスレッドに書いて答える）`,
         },
       },
       /*
@@ -118,9 +125,8 @@ const TOOLS = [
         —— あちらは `question` の 1 語だけで呼ぶ契約なので、スキーマが
         `options` を要求するとクライアントが送れない形になる。
 
-        **「選択肢が無い問いを作らない」という P3a の判断は変えていない。**
-        場所が変わっただけで、`validateAsk`（`MIN_ASK_OPTIONS`）が
-        **新しい問いを立てる経路だけ**で要求する。拾い直しはそこを通らない。
+        **P4 で `validateAsk` 側の要求も外した。** スレッドに素で書いた文が
+        回答になったので、「選択肢が無い問いは誰も答えられない」が成り立たなくなった。
       */
       required: ["run_key", "question"],
     },
@@ -310,6 +316,29 @@ const gateRun = async (
 };
 
 /**
+ * 👀 を ✅ に付け替える（要件 `I-3`・`F-C4`）。
+ *
+ * **`delivered_at` を立てた場所から呼ぶ。** 要件 `F-C4` は「`asks.delivered_at` /
+ * `inbox.taken_at` を立てるのと同じ場所で ✅ に変える」と定めている ——
+ * 片方だけ進めると印が嘘になる（台帳では渡っているのに画面は 👀 のまま）。
+ *
+ * **ボタンで答えたときは何もしない**（`answer_message_id` が NULL）。
+ * あちらは依頼者のメッセージが存在しないので、付け替える相手が居ない。
+ */
+const flipAnswerMark = async (
+  env: WorkerEnv,
+  run: RunRecord,
+  ask: AskRecord,
+): Promise<void> => {
+  if (ask.answerMessageId === null) return;
+  await markHandedOff(
+    discordRestConfig(env),
+    askTarget(run),
+    ask.answerMessageId,
+  );
+};
+
+/**
  * 答えが入っている問いを Claude へ渡す（要件 `I-3`）。
  *
  * **握らない。** 答えは既にあるので、ストリームを開く理由がない。
@@ -317,12 +346,15 @@ const gateRun = async (
  * これを立て忘れると次の `ask_human` が同じ答えを何度も返す。
  */
 const deliverAnswer = async (
+  env: WorkerEnv,
   db: Db,
   id: JsonRpcId,
+  run: RunRecord,
   ask: AskRecord,
   note?: string,
 ): Promise<Response> => {
   await markAskDelivered(db, ask.askId, Date.now());
+  await flipAnswerMark(env, run, ask);
   await markRunResumed(db, ask.runKey);
 
   return toolStatusResult(id, {
@@ -334,6 +366,57 @@ const deliverAnswer = async (
 };
 
 /**
+ * 作業中に届いていた素の文を渡す（要件 `F-C2` の 2 行目・P4 の完了条件）。
+ *
+ * **問いを Discord へ出さない。** 依頼者は既に喋っているので、聞き返す前に
+ * その文を渡す —— これが「作業中 → 溜まる → **次に `ask_human` が
+ * 呼ばれたとき渡る**」の実装。
+ *
+ * **`status: "answered"` で返す**（新しい語彙を作らない）。`ask_id` は付かない ——
+ * 問いが存在しないから。Claude 側の扱いは回答と同じでよい。
+ *
+ * **印を立ててから返すしかない。** 「渡し切れてから印を立てる」（要件 `I-3`）が
+ * 理想だが、ツールの戻り値には「受け取った」の合図が無い。応答がちょうど
+ * 落ちた場合はその文が届かないが、**印を立てずに返すと同じ文を毎回返し続ける**
+ * （終わらない）。**依頼者はもう一度書けば拾い直せる**ので、こちらへ倒す。
+ */
+const deliverQueued = async (
+  env: WorkerEnv,
+  db: Db,
+  id: JsonRpcId,
+  run: RunRecord,
+  queued: readonly InboxRecord[],
+): Promise<Response | null> => {
+  const taken = new Set(
+    await markQueuedTaken(
+      db,
+      queued.map((row) => row.id),
+      run.runKey,
+      Date.now(),
+    ),
+  );
+  const delivered = queued.filter((row) => taken.has(row.id));
+  // 競走で全部さらわれた（別の `ask_human` が渡した）。**空の答えを返さない。**
+  if (delivered.length === 0) return null;
+
+  await markRunResumed(db, run.runKey);
+
+  const rest = discordRestConfig(env);
+  const channel = askTarget(run);
+  for (const row of delivered) {
+    if (row.messageId !== null) {
+      await markHandedOff(rest, channel, row.messageId);
+    }
+  }
+
+  return toolStatusResult(id, {
+    status: "answered",
+    answer: foldInboundLines(delivered.map((row) => row.body)),
+    note: "作業中に依頼者がスレッドへ書いた内容です。いま渡そうとした質問は出していません。まだ確認が要るなら、この内容を踏まえてもう一度 ask_human を呼んでください。",
+  });
+};
+
+/**
  * **問いを立てるのではなく、返せていない問いがあれば拾い直す**（要件 `F-B3`・計画 P3b §3-2）。
  *
  * 壁を全部外しても transport は落ちる。落ちたとき Claude に届くのは
@@ -341,14 +424,15 @@ const deliverAnswer = async (
  * 素通りさせると 2 つの事故になる: Discord に同じ質問が 2 通出る／切れている間に
  * 人が答えていた場合、**その答えが宙に浮いて永久に届かない**（kanata で実際に 1 つ失った）。
  *
- * ## 5 つの段の順序が全部効いている
+ * ## 6 つの段の順序が全部効いている
  *
  * ```txt
  * 1. run を見る            無い / 終端 → 握らない
  * 2. 答えが入っている問い    → その答えを返す（握らない）
  * 3. 握りが生きている        → pending ＋ ask_id（2 本目を握らない。脅威 16）
- * 4. 未回答の問いがある      → 同じ問いを握り直す（Discord に 2 通目を出さない）
- * 5. 返せていない問いが無い  → ふつうに新しい問いを立てる
+ * 4. 溜まっている素の文がある → それを渡す（握らない・Discord に何も出さない。P4）
+ * 5. 未回答の問いがある      → 同じ問いを握り直す（Discord に 2 通目を出さない）
+ * 6. 返せていない問いが無い  → ふつうに新しい問いを立てる
  * ```
  *
  * **2 を 3 より先に置くのが要点。** 逆にすると、握りが落ちた直後（`held_at` はまだ
@@ -358,6 +442,11 @@ const deliverAnswer = async (
  * **3 を 4 より先に置くのも要点。** 逆にすると、本当に 2 本同時に呼ばれたときに
  * 2 本目が同じ問いを握って、ストリームが 2 本開く（脅威 16）。3 で降りた Claude は
  * 返した `ask_id` で `ask_wait` を呼べるので、行き止まりにはならない。
+ *
+ * **4 を 5 より先に置くのも要点**（P4 で足した段）。逆にすると、答えの来ない問いを
+ * 握り直している間、**依頼者が既に書いた文が届かない** —— 依頼者から見れば
+ * 「👀 は付いたのに何も起きない」。溜まった文を先に渡せば、Claude は
+ * それを読んでから聞き直せる。
  */
 const askHuman = async (
   id: JsonRpcId,
@@ -378,8 +467,10 @@ const askHuman = async (
   if (stranded !== null && stranded.answer !== null) {
     // 切れている間に人が答えていた。**質問は出し直さない。**
     return await deliverAnswer(
+      env,
       db,
       id,
+      run,
       stranded,
       "接続が切れている間に届いた、直前の問いへの回答です。いま渡そうとした質問は出していません。",
     );
@@ -404,6 +495,16 @@ const askHuman = async (
     });
   }
 
+  /*
+    **作業中に届いていた素の文を先に渡す**（要件 `F-C2` の 2 行目・P4）。
+    依頼者は既に喋っているので、聞き返す前にそれを渡す。
+  */
+  const queued = await peekQueued(db, runKey);
+  if (queued.length > 0) {
+    const handed = await deliverQueued(env, db, id, run, queued);
+    if (handed !== null) return handed;
+  }
+
   if (stranded !== null) {
     /*
       まだ答えが無い。**同じ問いが Discord に出たままなので、2 通目を出さずに握り直す。**
@@ -418,14 +519,32 @@ const askHuman = async (
       config: resolveHoldConfig(env),
       progressToken,
       waitUntil: (promise) => ctx.waitUntil(promise),
+      onDelivered: (ask) => flipAnswerMark(env, run, ask),
     });
+  }
+
+  /*
+    **拾うものが無い `(再送)` は問いにしない。**
+
+    P3b までは `MIN_ASK_OPTIONS = 1` が偶然これを止めていた（`(再送)` は
+    `options` を持たないので検証に落ちた）。**P4 で選択肢を任意にした瞬間に
+    その偶然が消えた** —— 素通りさせると「(再送)」の 1 語だけが書かれた
+    メッセージが Discord に出る。**明示の検査に置き換える。**
+  */
+  if (isResendQuestion(args.question)) {
+    return toolResult(
+      id,
+      "拾い直せる問いがありません（この run には未配達の問いが 1 つもありません）。" +
+        "聞きたいことがあるなら question に本物の問いを書いてください。",
+      true,
+    );
   }
 
   /*
     返せていない問いが無い。ふつうに新しい問いを立てる。
 
-    **`options` を要求するのはここだけ**（`validateAsk` の `MIN_ASK_OPTIONS`）。
-    拾い直しはこの経路を通らないので、`${RESEND_QUESTION}` の 1 語で呼び直せる。
+    **`options` は無くてもよい**（P4）。ボタンが無い問いは、依頼者が
+    スレッドへ素で書いて答える（要件 `F-C2` の 1 行目）。
   */
   const validated = validateAsk({
     question: args.question,
@@ -460,6 +579,7 @@ const askHuman = async (
     config: resolveHoldConfig(env),
     progressToken,
     waitUntil: (promise) => ctx.waitUntil(promise),
+    onDelivered: (answered) => flipAnswerMark(env, run, answered),
     onOpen: async () => {
       const posted = await postMessage(
         rest,
@@ -520,7 +640,7 @@ const askWait = async (
         note: "この回答は既に渡したものです（同じ答えをもう一度返しています）。",
       });
     }
-    return await deliverAnswer(db, id, ask);
+    return await deliverAnswer(env, db, id, gate.run, ask);
   }
 
   await touchRunHeld(db, ask.runKey, Date.now());
@@ -532,6 +652,7 @@ const askWait = async (
     config: resolveHoldConfig(env),
     progressToken,
     waitUntil: (promise) => ctx.waitUntil(promise),
+    onDelivered: (answered) => flipAnswerMark(env, gate.run, answered),
   });
 };
 

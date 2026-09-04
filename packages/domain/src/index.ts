@@ -11,7 +11,6 @@ export {
   isAskProblem,
   MAX_ASK_OPTIONS,
   MAX_ASK_QUESTION_LENGTH,
-  MIN_ASK_OPTIONS,
   parseAnswerCustomId,
   validateAsk,
 } from "./ask.ts";
@@ -40,6 +39,30 @@ export {
   hostOf,
   isFireUrlAllowed,
 } from "./fire.ts";
+export type {
+  GatewayEffect,
+  GatewayFrameAction,
+  GatewayInput,
+  GatewaySession,
+  GatewayState,
+  GatewayStateKind,
+  GatewayStep,
+} from "./gateway.ts";
+export {
+  backoffDelayMs,
+  closeReason,
+  GATEWAY_CLOSE_RESTART,
+  GATEWAY_INTENTS,
+  GATEWAY_OP,
+  GATEWAY_RESET_INTERVAL_MS,
+  GATEWAY_URL,
+  gatewayConnectUrl,
+  isFatalCloseCode,
+  isGatewayHealthy,
+  parseGatewayFrame,
+  step,
+  zombieWindowMs,
+} from "./gateway.ts";
 export type { Health } from "./health.ts";
 export type { HoldConfig, HoldOverrides } from "./hold.ts";
 export {
@@ -58,6 +81,20 @@ export {
 } from "./hold.ts";
 export type { RandomBytes } from "./ids.ts";
 export { newAskId, newRunKey } from "./ids.ts";
+export type {
+  InboundDecision,
+  InboundMessage,
+  InboundOverrides,
+  InboundWindows,
+  RunSnapshot,
+} from "./inbound.ts";
+export {
+  decideInbound,
+  foldInboundLines,
+  INBOUND_ACTIVE_WINDOW_MS,
+  INBOUND_HELD_WINDOW_MS,
+  resolveInboundWindows,
+} from "./inbound.ts";
 export { isOwner } from "./owner.ts";
 export type {
   ProjectQuery,

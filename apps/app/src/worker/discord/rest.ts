@@ -163,3 +163,57 @@ export const putCommands = (
       : `/applications/${config.applicationId}/guilds/${guildId}/commands`,
     { method: "PUT", body: commands, auth: "bot" },
   );
+
+/* ---- 素の文の経路（P4・要件 `F-C4`） ---- */
+
+/**
+ * メッセージを書き換える（要件 `F-C2` の 1 行目）。
+ *
+ * **interaction の type 7 では届かない場所がある。** ボタンで答えたときは
+ * interaction の応答でそのまま差し替えられるが、**スレッドに素で書いて答えたときは
+ * interaction が存在しない** —— だから bot token で PATCH する口が要る。
+ */
+export const editMessage = (
+  config: DiscordRestConfig,
+  channelId: string,
+  messageId: string,
+  payload: MessagePayload,
+): Promise<PostResult> =>
+  withId(
+    call(config, `/channels/${channelId}/messages/${messageId}`, {
+      method: "PATCH",
+      body: { allowed_mentions: { parse: [] }, ...payload },
+      auth: "bot",
+    }),
+  );
+
+/**
+ * 印を付ける（要件 `F-C4`）。**bot に `Add Reactions` と `Read Message History` の
+ * 両方が要る** —— 片方だと 403 になって印が 1 つも付かない（計画 P4 §7）。
+ *
+ * `emoji` は URL の一部になるので**必ずエンコードする**（絵文字はマルチバイト）。
+ */
+export const addReaction = (
+  config: DiscordRestConfig,
+  channelId: string,
+  messageId: string,
+  emoji: string,
+): Promise<CallResult> =>
+  call(
+    config,
+    `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+    { method: "PUT", auth: "bot" },
+  );
+
+/** 自分が付けた印を外す（👀 → ✅ の付け替えの後半）。 */
+export const removeOwnReaction = (
+  config: DiscordRestConfig,
+  channelId: string,
+  messageId: string,
+  emoji: string,
+): Promise<CallResult> =>
+  call(
+    config,
+    `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+    { method: "DELETE", auth: "bot" },
+  );

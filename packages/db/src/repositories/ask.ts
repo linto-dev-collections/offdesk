@@ -216,3 +216,63 @@ export const markAskDelivered = async (
 
   return rows.length === 1;
 };
+
+/**
+ * スレッドに素で書いた文で答える（要件 `F-C2` の 1 行目・計画 P4 §3-5）。
+ *
+ * **`answerAskByButton` と分けてある**のは `answer_message_id` の 1 列のため ——
+ * あれは「その回答がどの Discord メッセージから来たか」で、
+ * **`delivered_at` を立てるときに 👀 を ✅ へ付け替える相手**（要件 `I-3`・`F-C4`）。
+ * ボタン由来の回答には元メッセージが無いので、あちらは NULL のまま。
+ *
+ * 競走の裁き方は同じ（`WHERE answer IS NULL` の 1 文）。ボタンと素の文が
+ * ほぼ同時に来ても、勝つのは 1 つだけ。
+ */
+export const answerAskByMessage = async (
+  db: Db,
+  askId: string,
+  input: {
+    readonly answer: string;
+    readonly discordUserId: string;
+    readonly answerMessageId: string;
+  },
+  nowMs: number,
+): Promise<boolean> => {
+  const rows = await db
+    .update(asks)
+    .set({
+      answer: input.answer,
+      answeredByDiscordUserId: input.discordUserId,
+      answeredAt: new Date(nowMs),
+      answerMessageId: input.answerMessageId,
+    })
+    .where(and(eq(asks.askId, askId), isNull(asks.answer)))
+    .returning({ askId: asks.askId });
+
+  return rows.length === 1;
+};
+
+/**
+ * その Discord メッセージを回答として使った問い（P4 の再送対策）。
+ *
+ * **Gateway は再接続時にイベントを再送しうる**（resume の仕様）。溜める側は
+ * `inbox_message_uidx` が二重を止めるが、**回答として使った文は `inbox` に
+ * 入らない**ので、そちらの冪等性はこの引きが担う ——
+ * これが無いと、再送された回答が 2 通目として `inbox` に積まれる。
+ *
+ * **UNIQUE 索引を張っていない列を引く**（`answer_message_id`）。1 件しか無い
+ * ことを索引で保証していないので `limit(1)` で読む —— 検査したいのは
+ * 「この文はもう扱ったか」だけで、何件あるかは問題にならない。
+ */
+export const findAskByAnswerMessage = async (
+  db: Db,
+  answerMessageId: string,
+): Promise<AskRecord | null> => {
+  const [row] = await db
+    .select(ASK_COLUMNS)
+    .from(asks)
+    .where(eq(asks.answerMessageId, answerMessageId))
+    .limit(1);
+
+  return row === undefined ? null : toAskRecord(row);
+};

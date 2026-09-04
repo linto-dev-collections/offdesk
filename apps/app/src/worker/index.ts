@@ -1,5 +1,10 @@
 import { createAuth } from "@offdesk/auth";
-import { HealthOutput, RPC_PREFIX } from "@offdesk/contract";
+import {
+  GatewayStatus,
+  gatewayFatalHint,
+  HealthOutput,
+  RPC_PREFIX,
+} from "@offdesk/contract";
 import { bearerMatches } from "@offdesk/domain";
 import { getHealth } from "@offdesk/usecase";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -8,6 +13,7 @@ import { admin } from "./admin/projects.ts";
 import { handleInteraction } from "./discord/interactions.ts";
 import { verifyDiscordSignature } from "./discord/verify.ts";
 import { type AppBindings, assertEnv, type WorkerEnv } from "./env.ts";
+import { GATEWAY_PATH, gatewayFetch } from "./gateway/gateway.do.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { router } from "./rpc/router.ts";
 
@@ -52,6 +58,78 @@ app.post("/mcp", async (c) => {
   握りは POST の応答そのものが SSE なので、別に開いてもらう必要がない。
 */
 app.get("/mcp", (c) => c.text("method not allowed", 405));
+
+/*
+  Gateway の状態と張り直し（要件 `F-I7`・計画 P4 §3-7）。
+
+  **Ed25519 ではなく Bearer / セッションで守る**（plans/security.md 脅威 1）——
+  Discord から来るリクエストではないので、Discord の署名で守ろうとしない。
+
+  **機械の口（Bearer）と画面（ログイン）の両方から叩ける。** `curl` を覚えなくても
+  P7b の運用画面から張り直せるようにするため、判定を「どちらか」にしてある。
+*/
+const gateway = new Hono<AppBindings>();
+
+gateway.use("*", async (c, next) => {
+  if (bearerMatches(c.req.header("authorization"), c.env.OFFDESK_TOKEN)) {
+    await next();
+    return;
+  }
+
+  /*
+    **ログイン済みのブラウザも通す。** 許可外のメールはそもそもユーザー行が
+    作られない（`packages/auth` の `validateUserInfo`）ので、
+    セッションがある ＝ 許可されたメール（要件 `F-G3`）。
+  */
+  const session = await createAuth(c.env).api.getSession({
+    headers: c.req.raw.headers,
+  });
+  if (session !== null) {
+    await next();
+    return;
+  }
+
+  console.warn("[gateway] 認可されていない要求を拒否しました", {
+    path: c.req.path,
+  });
+  return c.text("unauthorized", 401);
+});
+
+/**
+ * DO の応答を契約（`GatewayStatus`）に通してから返す。
+ *
+ * **`parse` を通すのが要点。** DO 側にデバッグ情報を足したとき、
+ * スキーマに無い値は**ここで落ちる**（bot token に到達する値を出さない。脅威 15）。
+ *
+ * `hint` は `fatal` のときの**直し方**（文言は `packages/contract`）。
+ * `fatal` は人が直すまで戻らない状態なので、何をすればよいかが出ていないと詰む。
+ */
+const gatewayResponse = async (upstream: Response): Promise<Response> => {
+  const status = GatewayStatus.parse(await upstream.json());
+
+  return Response.json(
+    { ...status, hint: gatewayFatalHint(status.fatalReason) },
+    { status: upstream.status },
+  );
+};
+
+gateway.get("/status", async (c) =>
+  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.status)),
+);
+
+gateway.post("/reset", async (c) =>
+  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.reset, "POST")),
+);
+
+/*
+  **DO は自分では起動できない**（要件 `F-I2`）。alarm ごと evict された状態から
+  戻す保険で、5 分 cron が叩く（P8）。**既に繋がっているなら何も起きない。**
+*/
+gateway.post("/ensure", async (c) =>
+  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.ensure, "POST")),
+);
+
+app.route("/gateway", gateway);
 
 app.post("/discord/interactions", async (c) => {
   const body = await c.req.text();

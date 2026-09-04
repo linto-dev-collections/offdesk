@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_ALPHA,
+  runActivityAt,
   runHeldAt,
   runStatus,
   seedRun,
@@ -55,15 +56,6 @@ const eventRows = async (): Promise<
     "SELECT id, run_key, kind, body, discord_message_id FROM events ORDER BY id",
   ).all();
   return results as never;
-};
-
-const runActivityAt = async (runKey: string): Promise<number | null> => {
-  const row = await env.DB.prepare(
-    "SELECT activity_at FROM runs WHERE run_key = ?",
-  )
-    .bind(runKey)
-    .first<{ activity_at: number | null }>();
-  return row?.activity_at ?? null;
 };
 
 const report = async (input: {

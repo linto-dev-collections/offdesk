@@ -471,3 +471,155 @@ describe("events の CHECK", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("inbox の CHECK と索引", () => {
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+  const OTHER_RUN_KEY = "OFFDESK-fedcba9876543210";
+
+  const insertInboxRow = (values: Record<string, unknown>) =>
+    env.DB.prepare(
+      `INSERT INTO inbox (run_key, author_discord_user_id, message_id, body,
+                          taken_at, taken_by_run_key)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        values.run_key ?? RUN_KEY,
+        values.author_discord_user_id ?? "111111111111111111",
+        /*
+          **`??` では「明示の NULL」を渡せない**（計画 README §2-3 の「無い」を
+          `undefined` で表さない、の裏返し）。`null ?? 既定` は既定になるので、
+          `message_id: null` を渡したのに 2 行目が既定の id で衝突した（実測）。
+          キーの有無で分ける。
+        */
+        "message_id" in values ? values.message_id : "777777777777777777",
+        values.body ?? "つづきをお願い",
+        values.taken_at ?? null,
+        values.taken_by_run_key ?? null,
+      )
+      .run();
+
+  const seed = async (): Promise<void> => {
+    await insertProject({});
+    for (const runKey of [RUN_KEY, OTHER_RUN_KEY]) {
+      await env.DB.prepare(
+        `INSERT INTO runs (run_key, project_id, prompt, requester_discord_user_id, channel_id, thread_id, status, finished_at)
+         VALUES (?, 'p1', 'ping', '111111111111111111', '111111111111111111', ?, 'done', 1)`,
+      )
+        .bind(runKey, `44444444444444444${runKey.slice(-1)}`)
+        .run();
+    }
+  };
+
+  it("素直な形は入る", async () => {
+    await seed();
+    await expect(insertInboxRow({})).resolves.toBeDefined();
+  });
+
+  it("空の body は入らない", async () => {
+    await seed();
+    await expect(insertInboxRow({ body: "" })).rejects.toThrow();
+  });
+
+  /*
+    **「渡した時刻」と「渡した先」は対で埋まる**（`inbox_taken_pair_ck`）。
+    片方だけ立つと要件 `I-3` の印（👀 → ✅）が嘘になる ——
+    渡した先が分からないまま「渡した」と言うことになる。
+  */
+  it.each([
+    ["時刻だけ", { taken_at: 1_788_600_000_000 }],
+    ["渡した先だけ", { taken_by_run_key: OTHER_RUN_KEY }],
+  ])("印が %s なら入らない", async (_label, values) => {
+    await seed();
+    await expect(insertInboxRow(values)).rejects.toThrow();
+  });
+
+  it("時刻と渡した先が揃っていれば入る", async () => {
+    await seed();
+    await expect(
+      insertInboxRow({
+        taken_at: 1_788_600_000_000,
+        taken_by_run_key: OTHER_RUN_KEY,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  /*
+    **同じ Discord メッセージを 2 回積まない**（`inbox_message_uidx`）。
+    Gateway は再接続時にイベントを再送しうる（resume の仕様）ので、
+    **冪等性は D1 が担保する** —— アプリ側の記憶に頼ると isolate の入れ替わりで破れる。
+  */
+  it("同じ message_id は 2 行入らない", async () => {
+    await seed();
+    await insertInboxRow({});
+
+    await expect(insertInboxRow({})).rejects.toThrow();
+  });
+
+  /*
+    **SQLite の UNIQUE 索引は NULL を重複と見ない。**
+    コマンド経由で元メッセージが無い行（テーブル定義書 §4-6）は何行でも置ける。
+  */
+  it("message_id が NULL の行は何行でも入る", async () => {
+    await seed();
+
+    await expect(insertInboxRow({ message_id: null })).resolves.toBeDefined();
+    await expect(insertInboxRow({ message_id: null })).resolves.toBeDefined();
+  });
+
+  it("別の run なら同じ本文でも入る", async () => {
+    await seed();
+    await insertInboxRow({});
+
+    await expect(
+      insertInboxRow({
+        run_key: OTHER_RUN_KEY,
+        message_id: "777777777777777778",
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("居ない run には積めない", async () => {
+    await seed();
+    await expect(
+      insertInboxRow({ run_key: "OFFDESK-aaaaaaaaaaaaaaaa" }),
+    ).rejects.toThrow();
+  });
+
+  it("居ない run へは渡せない（taken_by_run_key も FK）", async () => {
+    await seed();
+    await expect(
+      insertInboxRow({
+        taken_at: 1_788_600_000_000,
+        taken_by_run_key: "OFFDESK-aaaaaaaaaaaaaaaa",
+      }),
+    ).rejects.toThrow();
+  });
+
+  /** FK は RESTRICT。**run を消して inbox だけ残る形を作らない。** */
+  it("行が残っている run は消せない", async () => {
+    await seed();
+    await insertInboxRow({});
+
+    await expect(
+      env.DB.prepare("DELETE FROM runs WHERE run_key = ?").bind(RUN_KEY).run(),
+    ).rejects.toThrow();
+  });
+
+  /*
+    **未処理の文をまとめて読むのに部分索引が選ばれること**
+    （`inbox_pending_idx`。テーブル定義書 付録 A-3 と同じ確かめ方）。
+    ここが全表走査に落ちると、渡し終わった行が増えるほど遅くなる。
+  */
+  it("未処理の引きが inbox_pending_idx を使う", async () => {
+    await seed();
+
+    const { results } = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT id FROM inbox WHERE run_key = ? AND taken_at IS NULL ORDER BY id`,
+    )
+      .bind(RUN_KEY)
+      .all();
+
+    expect(JSON.stringify(results)).toContain("inbox_pending_idx");
+  });
+});

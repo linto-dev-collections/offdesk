@@ -158,3 +158,32 @@ export const runStatus = async (runKey: string): Promise<string | null> => {
     .first<{ status: string }>();
   return row?.status ?? null;
 };
+
+/* P4（素の文）が使う。 */
+
+export const inboxRows = async (): Promise<
+  readonly {
+    id: number;
+    run_key: string;
+    author_discord_user_id: string;
+    message_id: string | null;
+    body: string;
+    taken_at: number | null;
+    taken_by_run_key: string | null;
+  }[]
+> => {
+  const { results } = await env.DB.prepare(
+    `SELECT id, run_key, author_discord_user_id, message_id, body, taken_at, taken_by_run_key
+     FROM inbox ORDER BY id`,
+  ).all();
+  return results as never;
+};
+
+export const runActivityAt = async (runKey: string): Promise<number | null> => {
+  const row = await env.DB.prepare(
+    "SELECT activity_at FROM runs WHERE run_key = ?",
+  )
+    .bind(runKey)
+    .first<{ activity_at: number | null }>();
+  return row?.activity_at ?? null;
+};

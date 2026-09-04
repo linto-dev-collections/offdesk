@@ -15,6 +15,7 @@ import { beforeAll, beforeEach } from "vitest";
  */
 const TABLES_CHILD_FIRST = [
   // offdesk 所有（全部 RESTRICT なので、この並びが FK の向きの一覧になる）。
+  "inbox",
   "events",
   "asks",
   "runs",

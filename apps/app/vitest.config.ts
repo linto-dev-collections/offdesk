@@ -73,6 +73,16 @@ export default defineConfig({
           ASK_PROGRESS_MS: "10",
           ASK_SILENT_HOLD_MS: "150",
           ASK_TOUCH_MS: "10",
+
+          /*
+            P4 の素の文。**握りの窓（60 秒）と作業中の窓（6 時間）を縮める** ——
+            素の既定だと「起こし直し」の判定にテストが 6 時間かけることになる
+            （要件 `N-9`「時間で待つテストを書かない」）。
+            **2 つの値を別にしてある**のが要点で、同じにすると「窓が 2 つ別」を
+            検査しているテストが通ってしまう。
+          */
+          INBOUND_HELD_WINDOW_MS: "200",
+          INBOUND_ACTIVE_WINDOW_MS: "2000",
         },
       },
     })),

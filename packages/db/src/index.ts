@@ -14,8 +14,10 @@ export { FIRE_TOKEN_KEY_VERSION } from "./crypto/key-version.ts";
 export type { AskRecord, InsertAskInput } from "./repositories/ask.ts";
 export {
   answerAskByButton,
+  answerAskByMessage,
   attachAskMessage,
   findAsk,
+  findAskByAnswerMessage,
   findLatestUndeliveredAsk,
   insertAsk,
   markAskDelivered,
@@ -26,6 +28,13 @@ export {
   insertEvent,
   listEvents,
 } from "./repositories/event.ts";
+export type { InboxRecord } from "./repositories/inbox.ts";
+export {
+  markQueuedTaken,
+  peekQueued,
+  peekQueuedInThread,
+  queueMessage,
+} from "./repositories/inbox.ts";
 export type {
   ProjectRecord,
   ProjectWithMaskRecord,
@@ -45,6 +54,7 @@ export type {
   RunStatus,
 } from "./repositories/run.ts";
 export {
+  abandonAndStart,
   attachRunThread,
   findRun,
   findRunByThread,
