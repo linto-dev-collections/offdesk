@@ -65,10 +65,6 @@ describe("initialize", () => {
 
 describe("tools/list", () => {
   it("3 つ返す（ask_wait と report は中身が無くても一覧に出す）", async () => {
-    /*
-      **一覧に出しておくのは routine の `allowed_tools` を後から増やさないため**
-      （あれはコードの外にあるので、増やし忘れると承認待ちで固まる。要件 §9-1）。
-    */
     const { body } = await mcpJson({
       jsonrpc: "2.0",
       id: 1,

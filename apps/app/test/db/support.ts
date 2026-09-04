@@ -187,3 +187,51 @@ export const runActivityAt = async (runKey: string): Promise<number | null> => {
     .first<{ activity_at: number | null }>();
   return row?.activity_at ?? null;
 };
+
+/* P5（hooks とコンテキスト残量）が使う。 */
+
+export const runCtx = async (
+  runKey: string,
+): Promise<{
+  ctx_used_tokens: number | null;
+  ctx_output_tokens: number | null;
+  ctx_at: number | null;
+  ctx_model: string | null;
+} | null> => {
+  const row = await env.DB.prepare(
+    `SELECT ctx_used_tokens, ctx_output_tokens, ctx_at, ctx_model
+     FROM runs WHERE run_key = ?`,
+  )
+    .bind(runKey)
+    .first<{
+      ctx_used_tokens: number | null;
+      ctx_output_tokens: number | null;
+      ctx_at: number | null;
+      ctx_model: string | null;
+    }>();
+  return row ?? null;
+};
+
+export const eventRows = async (): Promise<
+  readonly {
+    id: number;
+    run_key: string;
+    kind: string;
+    body: string;
+    discord_message_id: string | null;
+  }[]
+> => {
+  const { results } = await env.DB.prepare(
+    "SELECT id, run_key, kind, body, discord_message_id FROM events ORDER BY id",
+  ).all();
+  return results as never;
+};
+
+export const runFinishedAt = async (runKey: string): Promise<number | null> => {
+  const row = await env.DB.prepare(
+    "SELECT finished_at FROM runs WHERE run_key = ?",
+  )
+    .bind(runKey)
+    .first<{ finished_at: number | null }>();
+  return row?.finished_at ?? null;
+};

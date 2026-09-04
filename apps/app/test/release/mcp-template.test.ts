@@ -30,7 +30,7 @@ const SETTINGS = JSON.parse(
   permissions: { allow: readonly string[] };
   hooks: {
     PreToolUse: readonly {
-      matcher: string;
+      matcher?: string;
       hooks: readonly { type: string; command: string }[];
     }[];
   };
@@ -102,15 +102,28 @@ describe("repo-template/.claude/settings.json", () => {
     );
   });
 
+  /*
+    **`PreToolUse` の群は 1 つではない**（P5 が残量を通報する群を足した）ので、
+    承認を出す群を**中身で選ぶ** —— 位置で選ぶと、群を並べ替えたときに隣を
+    検査し始める（P3a §9-3 の錨の話と同じ）。群の構成そのものは
+    `hook-template.test.ts` が見張っている。
+  */
   it("フックの matcher が offdesk のツールだけを拾う", () => {
-    expect(SETTINGS.hooks.PreToolUse.map((entry) => entry.matcher)).toEqual([
+    const allowing = SETTINGS.hooks.PreToolUse.filter((entry) =>
+      entry.hooks.some((hook) => hook.command.includes("permissionDecision")),
+    );
+
+    expect(allowing.map((entry) => entry.matcher)).toEqual([
       `mcp__${SERVER_NAME}__.*`,
     ]);
-    expect(SETTINGS.hooks.PreToolUse[0]?.hooks[0]?.type).toBe("command");
+    expect(allowing[0]?.hooks[0]?.type).toBe("command");
   });
 
   it("フックが PreToolUse を allow する JSON を出す", () => {
-    const command = SETTINGS.hooks.PreToolUse[0]?.hooks[0]?.command ?? "";
+    const command =
+      SETTINGS.hooks.PreToolUse.flatMap((entry) => entry.hooks)
+        .map((hook) => hook.command)
+        .find((value) => value.includes("permissionDecision")) ?? "";
     const stdout = execFileSync("bash", ["-c", command], { encoding: "utf8" });
 
     expect(JSON.parse(stdout)).toEqual({

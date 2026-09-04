@@ -21,6 +21,8 @@ import {
   touchRunHeld,
 } from "@offdesk/db";
 import {
+  contextLine,
+  contextWindowFor,
   foldInboundLines,
   isAskProblem,
   isHeldAlive,
@@ -316,6 +318,20 @@ const deliverQueued = async (
   });
 };
 
+/**
+ * その run の残量の 1 行（要件 `F-D4`・P5 §3-5）。**`null` なら何も足さない。**
+ *
+ * **`run` は要求の頭で引いたもので構わない。** 通報が来るのは `PreToolUse`
+ * （＝このツール呼び出しの直前）なので、`gateRun` が読んだ時点で
+ * **いちばん新しい値が入っている** —— それが `Stop` ではなく `PreToolUse` を
+ * 表示に使う理由（計画 P5 §3-1）。
+ */
+const contextTailOf = (run: RunRecord): string | null =>
+  contextLine({
+    usedTokens: run.ctxUsedTokens,
+    windowTokens: contextWindowFor(run.ctxModel),
+  });
+
 const askHuman = async (
   id: JsonRpcId,
   args: Record<string, unknown>,
@@ -414,7 +430,7 @@ const askHuman = async (
       const posted = await postMessage(
         rest,
         target,
-        askMessage({ askId, ...validated }),
+        askMessage({ askId, ...validated }, contextTailOf(run)),
       );
       if (!posted.ok) return { ok: false, reason: posted.reason };
 
@@ -498,7 +514,7 @@ const report = async (
   const posted = await postMessage(
     discordRestConfig(env),
     askTarget(gate.run),
-    reportMessage(validated.kind, validated.body),
+    reportMessage(validated.kind, validated.body, contextTailOf(gate.run)),
   );
 
   if (!posted.ok) {

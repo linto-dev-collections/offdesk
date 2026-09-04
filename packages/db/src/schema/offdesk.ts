@@ -131,6 +131,20 @@ export const runs = sqliteTable(
     ctxUsedTokens: integer("ctx_used_tokens"),
     ctxOutputTokens: integer("ctx_output_tokens"),
     ctxAt: integer("ctx_at", { mode: "timestamp_ms" }),
+    /*
+      **分母を引くためのモデル名**（要件 `F-D4`・P5）。テーブル定義書 §4-3 に
+      無かった列で、P5 の着手時に足した —— 分子を通報するのと、それを描くのは
+      別の要求なので、**モデル名をどこかに残さないと分母が引けない。**
+
+      窓の値そのものを持たない理由は、対応表を `packages/domain` のコードに置くと
+      決めたから（要件 `F-D4`）。**モデル名なら、表を直した時点で過去の run の
+      表示も直る**（窓を焼き込むと、直しても古い行だけ嘘のまま残る）。
+
+      **`ctx_pair_ck` に混ぜない。** `.message.usage` があるのに `.message.model`
+      が無い転写ログの行はありうるので、対にすると**分子ごと捨てることになる。**
+      NULL は「モデルが分からない」で、既定の窓に倒して `console.warn` に残す。
+    */
+    ctxModel: text("ctx_model"),
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
     failureReason: text("failure_reason"),
     createdAt,
@@ -174,6 +188,15 @@ export const runs = sqliteTable(
       "runs_ctx_sign_ck",
       sql`(${t.ctxUsedTokens} IS NULL OR ${t.ctxUsedTokens} >= 0)
        AND (${t.ctxOutputTokens} IS NULL OR ${t.ctxOutputTokens} >= 0)`,
+    ),
+    /*
+      **空文字を「モデルが分からない」にしない**（`runs_thread_id_ck` と同じ理由）。
+      空文字は対応表のどの鍵にも当たらないので既定へ倒れるが、`console.warn` には
+      モデル名として空文字が出て、切り分けの手掛かりが 1 つ消える。
+    */
+    check(
+      "runs_ctx_model_ck",
+      sql`${t.ctxModel} IS NULL OR length(${t.ctxModel}) > 0`,
     ),
     check(
       "runs_finished_ck",

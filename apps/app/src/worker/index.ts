@@ -14,6 +14,8 @@ import { handleInteraction } from "./discord/interactions.ts";
 import { verifyDiscordSignature } from "./discord/verify.ts";
 import { type AppBindings, assertEnv, type WorkerEnv } from "./env.ts";
 import { GATEWAY_PATH, gatewayFetch } from "./gateway/gateway.do.ts";
+import { handleHookContext } from "./hooks/context.ts";
+import { handleHookSessionEnd } from "./hooks/session-end.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { router } from "./rpc/router.ts";
 
@@ -130,6 +132,32 @@ gateway.post("/ensure", async (c) =>
 );
 
 app.route("/gateway", gateway);
+
+/*
+  Claude Code の hooks（要件 `F-D4`〜`F-D6`・計画 P5）。
+
+  **Bearer 1 本で守る**（plans/security.md 脅威 2）。叩くのは cloud session の中の
+  シェルスクリプトで、ブラウザからは来ないので `/gateway/*` のような
+  「セッションでも通す」形にしない。
+
+  **どの失敗も 204 で返す**（`handleHook*` の中）。hook は通報が届かなくても
+  `exit 0` する best-effort の口で、**ここで 4xx を返しても誰も読まない** ——
+  読むのは Cloudflare のログだけなので、そこに warn を残す方が役に立つ。
+*/
+const hooks = new Hono<AppBindings>();
+
+hooks.use("*", async (c, next) => {
+  if (!bearerMatches(c.req.header("authorization"), c.env.OFFDESK_TOKEN)) {
+    console.warn("[hooks] bearer mismatch", { path: c.req.path });
+    return c.text("unauthorized", 401);
+  }
+  await next();
+});
+
+hooks.post("/context", (c) => handleHookContext(c.req.raw, c.env));
+hooks.post("/session-end", (c) => handleHookSessionEnd(c.req.raw, c.env));
+
+app.route("/hooks", hooks);
 
 app.post("/discord/interactions", async (c) => {
   const body = await c.req.text();

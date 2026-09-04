@@ -15,6 +15,15 @@ export {
   validateAsk,
 } from "./ask.ts";
 export { assertNever } from "./assert-never.ts";
+export type { ContextUsage } from "./context.ts";
+export {
+  CONTEXT_BAR_WIDTH,
+  contextLine,
+  contextUsedTokens,
+  contextWindowFor,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  hasKnownContextWindow,
+} from "./context.ts";
 export {
   DISCORD_ACTION_ROWS_MAX,
   DISCORD_BUTTON_LABEL_MAX,

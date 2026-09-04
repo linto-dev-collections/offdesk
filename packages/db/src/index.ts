@@ -25,6 +25,7 @@ export {
 export type { EventKind, EventRecord } from "./repositories/event.ts";
 export {
   attachEventMessage,
+  hasEventOfKind,
   insertEvent,
   listEvents,
 } from "./repositories/event.ts";
@@ -60,10 +61,12 @@ export {
   findRunByThread,
   insertRun,
   isTerminalStatus,
+  markRunDone,
   markRunFailed,
   markRunResumed,
   markRunRunning,
   markRunWaiting,
   touchRunActivity,
   touchRunHeld,
+  updateContextUsage,
 } from "./repositories/run.ts";

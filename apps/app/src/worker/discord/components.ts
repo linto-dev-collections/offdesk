@@ -70,18 +70,35 @@ const buttonRows = (buttons: readonly unknown[]): readonly unknown[] => {
 };
 
 /**
+ * 残量の 1 行を発言の末尾に足す（要件 `F-D4`・P5 §3-5）。
+ *
+ * **切り詰めるのは本文の方。** 先に本文を丸めてから足さないと、
+ * 長い発言のときに**残量の行だけが切り落とされる**（Discord は 2,000 字で切る）。
+ * `askAnsweredMessage` が回答を添えるのと同じ形。
+ */
+const withContext = (body: string, contextTail: string | null): string => {
+  if (contextTail === null) return truncate(body, DISCORD_MESSAGE_MAX);
+
+  const tail = `\n${contextTail}`;
+  return truncate(body, DISCORD_MESSAGE_MAX - tail.length) + tail;
+};
+
+/**
  * 問いかけ（要件 `F-B5`）。**`content` に素で出す。枠も見出しも付けない。**
  *
  * これは Claude 本人の発言だから。枠を付けてよいのは状態が変わったとき
  * （起動 / blocked / 終了）だけで、問いは状態の変化ではない。
  * **押せる口があることはボタンが示す**ので、「答えてください」も書かない。
  */
-export const askMessage = (ask: {
-  readonly askId: string;
-  readonly question: string;
-  readonly options: readonly string[];
-}): MessagePayload => ({
-  content: truncate(ask.question, DISCORD_MESSAGE_MAX),
+export const askMessage = (
+  ask: {
+    readonly askId: string;
+    readonly question: string;
+    readonly options: readonly string[];
+  },
+  contextTail: string | null = null,
+): MessagePayload => ({
+  content: withContext(ask.question, contextTail),
   components: buttonRows(
     ask.options.map((option, index) => ({
       type: COMPONENT_BUTTON,
@@ -131,9 +148,15 @@ const COLOR_BLOCKED = 0xed4245;
 export const reportMessage = (
   kind: ReportKind,
   body: string,
+  contextTail: string | null = null,
 ): MessagePayload => {
+  /*
+    **残量を付けるのは地の文だけ**（要件 `F-D4`）。`done` / `blocked` は
+    枠（embed）で「状態が変わった」を伝える合図なので、そこに残量を混ぜると
+    合図が薄まる —— しかも終わった run の残量には使い道がない。
+  */
   if (!isStateChange(kind)) {
-    return { content: truncate(body, DISCORD_MESSAGE_MAX) };
+    return { content: withContext(body, contextTail) };
   }
 
   const done = kind === "done";
@@ -147,3 +170,26 @@ export const reportMessage = (
     ],
   };
 };
+
+/* ---- セッションの終了（P5・要件 `F-D6`） ---- */
+
+/**
+ * 終了の枠（計画 P5 §3-4）。**`SessionEnd` だけがこれを出す。**
+ *
+ * **`Stop` から出さない**（要件 `F-D6`・`I-11`）。あれは 1 ターンの終わりなので、
+ * 出すと会話の途中で「終了しました」が何度も出る（kanata が実際にそうなっていた）。
+ *
+ * **「続けたいならスレッドに書けばよい」を書いてある。** 終端の run のスレッドへ
+ * 素で書くと起こし直しになる（要件 `F-C2`・P4）ので、**次にどうするかを
+ * 知らせないと、依頼者から見るとここで行き止まりに見える。**
+ */
+export const sessionEndMessage = (): MessagePayload => ({
+  embeds: [
+    {
+      color: COLOR_DONE,
+      title: "🏁 セッションが終了しました",
+      description:
+        "続けるときはこのスレッドに書いてください。新しく起こし直します。",
+    },
+  ],
+});

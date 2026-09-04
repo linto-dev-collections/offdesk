@@ -1,5 +1,6 @@
 export { GatewayStatus, gatewayFatalHint } from "./gateway.ts";
 export { HealthOutput } from "./health.ts";
+export { HookContextInput, HookSessionEndInput } from "./hooks.ts";
 export { MeOutput } from "./me.ts";
 export {
   FIRE_URL_PREFIX,

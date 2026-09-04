@@ -28,6 +28,13 @@ export type RunRecord = {
   readonly heldAt: number | null;
   /** Claude 由来の信号（要件 `F-C6` の長い窓）。**握りの印ではない。** */
   readonly activityAt: number | null;
+  /** 残量バーの分子（要件 `F-D4`）。**1 度も通報が来ていなければ NULL。** */
+  readonly ctxUsedTokens: number | null;
+  /** 参考値。**分子には含めない**（`contextUsedTokens` が足さない）。 */
+  readonly ctxOutputTokens: number | null;
+  readonly ctxAt: number | null;
+  /** 分母を引く鍵（`contextWindowFor`）。**NULL は「分からない」。** */
+  readonly ctxModel: string | null;
   readonly finishedAt: number | null;
   readonly failureReason: string | null;
   readonly createdAt: number;
@@ -53,6 +60,10 @@ const RUN_COLUMNS = {
   ccSessionUrl: runs.ccSessionUrl,
   heldAt: runs.heldAt,
   activityAt: runs.activityAt,
+  ctxUsedTokens: runs.ctxUsedTokens,
+  ctxOutputTokens: runs.ctxOutputTokens,
+  ctxAt: runs.ctxAt,
+  ctxModel: runs.ctxModel,
   finishedAt: runs.finishedAt,
   failureReason: runs.failureReason,
   createdAt: runs.createdAt,
@@ -70,6 +81,10 @@ type RunRow = {
   ccSessionUrl: string | null;
   heldAt: Date | null;
   activityAt: Date | null;
+  ctxUsedTokens: number | null;
+  ctxOutputTokens: number | null;
+  ctxAt: Date | null;
+  ctxModel: string | null;
   finishedAt: Date | null;
   failureReason: string | null;
   createdAt: Date;
@@ -91,6 +106,10 @@ const toRunRecord = (row: RunRow): RunRecord => ({
   ccSessionUrl: row.ccSessionUrl,
   heldAt: row.heldAt?.getTime() ?? null,
   activityAt: row.activityAt?.getTime() ?? null,
+  ctxUsedTokens: row.ctxUsedTokens,
+  ctxOutputTokens: row.ctxOutputTokens,
+  ctxAt: row.ctxAt?.getTime() ?? null,
+  ctxModel: row.ctxModel,
   finishedAt: row.finishedAt?.getTime() ?? null,
   failureReason: row.failureReason,
   createdAt: row.createdAt.getTime(),
@@ -318,4 +337,78 @@ export const abandonAndStart = async (
       updatedAt: new Date(nowMs),
     }),
   ]);
+};
+
+/* ここから下は P5（hooks とコンテキスト残量）が使う。 */
+
+/**
+ * コンテキストの通報を入れる（要件 `F-D4`・`F-D5`）。
+ *
+ * **`held_at` を触らない**（要件 `F-D5`）。これは Claude Code の hook が
+ * 定期的に叩く口で、**握りが生きている証拠ではない** —— 混ぜると、
+ * 誰も待っていない問いへ回答を書き込むことになる（P5 §7 の最後の行）。
+ *
+ * **`activity_at` は更新する。** hook が鳴っている ＝ セッションが息をしている
+ * ので、素の文の判定（要件 `F-C6` の長い窓）から見て「作業中」で正しい。
+ *
+ * `ctx_at` と `ctx_used_tokens` は**対で入れる**（`runs_ctx_pair_ck`）。
+ * `ctx_model` は対に入っていないので、分からなければ NULL のまま置ける。
+ *
+ * **終端の run でも書く。** `SessionEnd` の後に `Stop` が来ることはあるし、
+ * 最後の残量が残っていれば P7a の run 詳細が読める。状態は触らないので、
+ * 終端の意味は変わらない。
+ *
+ * **台帳に行があったかを返す。** 呼ぶ側がこれを見て `events` の 1 行を諦める ——
+ * `events.run_key` は `runs` への外部キーなので、**存在しない run に挿すと
+ * 500 になる**（hook の通報で 500 を出すと、Cloudflare のログで本物の異常と
+ * 見分けがつかなくなる）。
+ */
+export const updateContextUsage = async (
+  db: Db,
+  input: {
+    readonly runKey: string;
+    readonly usedTokens: number;
+    readonly outputTokens: number;
+    readonly model: string | null;
+  },
+  nowMs: number,
+): Promise<boolean> => {
+  const rows = await db
+    .update(runs)
+    .set({
+      ctxUsedTokens: input.usedTokens,
+      ctxOutputTokens: input.outputTokens,
+      ctxAt: new Date(nowMs),
+      ctxModel: input.model,
+      activityAt: new Date(nowMs),
+    })
+    .where(eq(runs.runKey, input.runKey))
+    .returning({ runKey: runs.runKey });
+
+  return rows.length > 0;
+};
+
+/**
+ * セッションが終わった（`SessionEnd`。状態機械の `─▶ done`）。
+ *
+ * **`Stop` から呼ばない**（要件 `F-D6`・`I-11`）。あちらは 1 ターンの終わりで、
+ * kanata はここを間違えて会話の途中に「🏁 セッションが終了しました」を出していた
+ * （同じセッションが 8 回鳴らした記録がある）。
+ *
+ * **生きている run だけを畳み、畳めたかどうかを返す。** 返り値が「枠を出すか」の
+ * 判断そのもの —— 同じ `SessionEnd` が 2 回来ても、2 回目は `false` になるので
+ * 終了の枠が二重に出ない（`runs_finished_ck` も終端の二重書き込みを許さない）。
+ */
+export const markRunDone = async (
+  db: Db,
+  runKey: string,
+  nowMs: number,
+): Promise<boolean> => {
+  const rows = await db
+    .update(runs)
+    .set({ status: "done", finishedAt: new Date(nowMs) })
+    .where(and(eq(runs.runKey, runKey), inArray(runs.status, LIVE_STATUSES)))
+    .returning({ runKey: runs.runKey });
+
+  return rows.length > 0;
 };

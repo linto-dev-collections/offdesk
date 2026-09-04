@@ -140,8 +140,8 @@ describe("runs の CHECK", () => {
 
   const insertRun = (values: Record<string, unknown>) =>
     env.DB.prepare(
-      `INSERT INTO runs (run_key, project_id, prompt, status, requester_discord_user_id, channel_id, thread_id, cc_session_id, cc_session_url, finished_at, failure_reason, ctx_at, ctx_used_tokens)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO runs (run_key, project_id, prompt, status, requester_discord_user_id, channel_id, thread_id, cc_session_id, cc_session_url, finished_at, failure_reason, ctx_at, ctx_used_tokens, ctx_output_tokens, ctx_model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         values.run_key ?? RUN_KEY,
@@ -157,6 +157,9 @@ describe("runs の CHECK", () => {
         values.failure_reason ?? null,
         values.ctx_at ?? null,
         values.ctx_used_tokens ?? null,
+        values.ctx_output_tokens ?? null,
+        // **`??` で既定に倒さない列**（明示の NULL を渡せなくなる。P4 の §2-3）。
+        "ctx_model" in values ? values.ctx_model : null,
       )
       .run();
 
@@ -174,9 +177,29 @@ describe("runs の CHECK", () => {
     ["running に failure_reason", { failure_reason: "だめ" }],
     ["ctx の片方だけ", { ctx_used_tokens: 100 }],
     ["ctx が負", { ctx_at: 1, ctx_used_tokens: -1 }],
+    ["ctx_output_tokens が負", { ctx_output_tokens: -1 }],
+    ["ctx_model が空文字", { ctx_model: "" }],
   ])("%s は入らない", async (_label, values) => {
     await insertProject({});
     await expect(insertRun(values)).rejects.toThrow();
+  });
+
+  /*
+    **通る値と対で見る**（P2 §9-2 の教訓。通る値だけだと制約が何も見ていなくても緑）。
+    `ctx_model` は**対の CHECK に入っていない**ので、分子だけが入った行も入る ——
+    `.message.usage` があって `.message.model` が無い転写ログの行のため（P5）。
+  */
+  it.each([
+    ["ctx が対で入る", { ctx_at: 1, ctx_used_tokens: 0 }],
+    [
+      "ctx_model つき",
+      { ctx_at: 1, ctx_used_tokens: 100, ctx_model: "claude-opus-5" },
+    ],
+    ["ctx_model だけ NULL", { ctx_at: 1, ctx_used_tokens: 100 }],
+    ["ctx_model だけあって分子が無い", { ctx_model: "claude-opus-5" }],
+  ])("%s は入る", async (_label, values) => {
+    await insertProject({});
+    await expect(insertRun(values)).resolves.toBeDefined();
   });
 
   it("居ないプロジェクトの run は入らない", async () => {

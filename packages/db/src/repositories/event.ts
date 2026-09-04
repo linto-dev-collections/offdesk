@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { events } from "../schema/offdesk.ts";
 
@@ -94,4 +94,25 @@ export const listEvents = async (
     discordMessageId: row.discordMessageId,
     createdAt: row.createdAt.getTime(),
   }));
+};
+
+/**
+ * その種の記録が既にあるか（P5 §3-4 の「枠を二重に出さない」）。
+ *
+ * **`listEvents` を使わない。** `stop_hook` は 1 ターンごとに 1 行増えるので、
+ * 長いセッションでは全件を読むことになる —— 見たいのは
+ * 「`done` が 1 行でもあるか」だけ（`events_run_id_idx` が run_key で引ける）。
+ */
+export const hasEventOfKind = async (
+  db: Db,
+  runKey: string,
+  kind: EventKind,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(and(eq(events.runKey, runKey), eq(events.kind, kind)))
+    .limit(1);
+
+  return row !== undefined;
 };
