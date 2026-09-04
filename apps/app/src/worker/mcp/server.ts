@@ -360,15 +360,40 @@ const askHuman = async (
     );
   }
 
-  if (isHeldAlive(run.heldAt, Date.now())) {
+  /*
+    **同じ run で握りを重ねない**（脅威 16）。
+
+    **`stranded !== null` を条件に入れるのが要点**（2026-09-05 に本番で踏んで直した）。
+    `held_at` は**立てるだけで下ろされない印**で（`touchRunHeld` しか無い）、
+    握りは 15 秒ごとに更新して終わるので、**終わった直後は最大 15 秒前の値が残る**
+    —— `HELD_ALIVE_MS`（60 秒）の窓に入ったままになり、
+    **回答を渡した直後の 2 本目が「別の握りが待っている」で断られていた。**
+
+    印だけを見て断れないのは、それが「握りが生きている」ことを意味しないから。
+    **生きた握りは必ず未配達の問いを握っている** ——
+    `holdForAnswer` の呼び出し口は 3 つ（新しい問い・拾い直し・`ask_wait`）で、
+    どれも `delivered_at` が NULL の行を渡す。`delivered_at` が立つのは
+    握り自身が答えを書き出した直後だけ。よって
+
+      印は生きている ＋ 未配達の問いが無い  ⇒  握りは無く、印が古いだけ
+
+    が言える。**`held_at` を下ろす側で直さないのは**、`markRunResumed`（＝待ちが
+    解けた印）が**握りが生きている間にも呼ばれる**ため —— ボタンと素の文の
+    記録側（`discord/interactions.ts`・`discord/inbound.ts`）がそれで、
+    そこで印を下ろすとこの防御そのものが穴になる。
+
+    **断るときは必ず `ask_id` を添える。** これが無いと `ask_wait` で
+    待ち直す手が無く、Claude は問いを出し直すか諦めるしかない（本番では諦めた）。
+  */
+  if (stranded !== null && isHeldAlive(run.heldAt, Date.now())) {
     console.warn("[mcp] 握りが重なったので 2 本目を返しました", { runKey });
     return toolStatusResult(id, {
       status: "pending",
-      ...(stranded === null ? {} : { ask_id: stranded.askId }),
+      ask_id: stranded.askId,
       next:
-        stranded === null
-          ? "この run では既に別の ask_human が回答を待っています。2 本目は握りません —— そちらが答えを受け取ります。"
-          : "この run では既に別の ask_human が同じ問いを待っています。2 本目は握りません —— この ask_id で ask_wait を呼べば、そのまま待ち直せます。",
+        "この run には未配達の問いが残っていて、握りの印もまだ生きています。" +
+        "2 本目は握りません —— この ask_id で ask_wait を呼べば、そのまま待ち直せます" +
+        "（Discord に質問は出したままです）。",
     });
   }
 

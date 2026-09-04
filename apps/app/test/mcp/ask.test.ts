@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { RESEND_QUESTION } from "@offdesk/domain";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askRows, runHeldAt, seedRun, seedTwoProjects } from "../db/support.ts";
@@ -128,10 +129,23 @@ describe("終わった run", () => {
 describe("同じ run で握りを重ねない（脅威 16）", () => {
   it("握りが生きていれば 2 本目は即座に pending を返す", async () => {
     /*
-      **時間で待たない。** 「1 本目が生きている」は `runs.held_at` が新しいことなので、
-      種の時点でそれを立てておけば、2 本目の判断はその 1 行だけで決まる。
+      **時間で待たない。** 「1 本目が生きている」は台帳の 2 つで表せるので、
+      種の時点でそれを置けば 2 本目の判断が決まる ——
+      **`held_at` が新しいこと**と**未配達の問いがあること**の 2 つ
+      （印だけでは足りない。`mcp/server.ts` の why・P3a §11）。
     */
     const runKey = await seedRun({ projectId, heldAt: Date.now() });
+    /*
+      **未配達の問いも置く。** 生きた握りは必ずこれを握っている
+      （`holdForAnswer` の呼び出し口 3 つすべてが `delivered_at IS NULL` の行を渡す）
+      —— 印だけを立てた種は**本番では起き得ない形**で、そちらで通してしまうと
+      「握りが終わった直後」まで断る実装が緑のまま通る（本番で踏んだ）。
+    */
+    await env.DB.prepare(
+      `INSERT INTO asks (ask_id, run_key, question, options) VALUES (?, ?, ?, '[]')`,
+    )
+      .bind("ask_0000000000000001", runKey, "1 本目の問い")
+      .run();
 
     const body = await notHeld({
       runKey,
@@ -140,9 +154,10 @@ describe("同じ run で握りを重ねない（脅威 16）", () => {
     });
 
     expect(toolStatusOf(body).status).toBe("pending");
+    expect(toolStatusOf(body).ask_id).toBe("ask_0000000000000001");
     // 失敗ではない（1 本目が答えを受け取る）。
     expect(isToolError(body)).toBe(false);
-    expect(await askRows()).toEqual([]);
+    expect(await askRows()).toHaveLength(1);
   });
 
   it("握りが古ければ握れる（落ちた握りに永久に譲らない）", async () => {
