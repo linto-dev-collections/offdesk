@@ -43,6 +43,9 @@ catalog:
   "@tanstack/react-query": ^5.102.8
   "@tanstack/react-router": ^1.170.32
   "@tanstack/router-plugin": ^1.168.35
+  # 画面のテスト（P7a §5）。**workerd には DOM が無い**ので jsdom のプロジェクトを 1 本足す。
+  "@testing-library/dom": ^10.4.1
+  "@testing-library/react": ^16.3.3
   "@types/react": ^19.2.18
   "@types/react-dom": ^19.2.4
   "@vitejs/plugin-react": ^6.1.1
@@ -53,6 +56,7 @@ catalog:
   drizzle-orm: ^0.45.2
   github-slugger: ^2.0.0
   hono: ^4.13.5
+  jsdom: ^30.0.1
   marked: ^18.0.11
   react: ^19.2.8
   react-dom: ^19.2.8

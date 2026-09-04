@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as AuthedRouteImport } from "./routes/_authed";
 import { Route as LoginRouteImport } from "./routes/login";
 import { Route as AuthedIndexRouteImport } from "./routes/_authed/index";
+import { Route as AuthedRunsIndexRouteImport } from "./routes/_authed/runs/index";
+import { Route as AuthedRunsRunKeyRouteImport } from "./routes/_authed/runs/$runKey";
 
 const AuthedRoute = AuthedRouteImport.update({
   id: "/_authed",
@@ -27,27 +29,49 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
   path: "/",
   getParentRoute: () => AuthedRoute,
 } as any);
+const AuthedRunsIndexRoute = AuthedRunsIndexRouteImport.update({
+  id: "/runs/",
+  path: "/runs/",
+  getParentRoute: () => AuthedRoute,
+} as any);
+const AuthedRunsRunKeyRoute = AuthedRunsRunKeyRouteImport.update({
+  id: "/runs/$runKey",
+  path: "/runs/$runKey",
+  getParentRoute: () => AuthedRoute,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof AuthedIndexRoute;
   "/login": typeof LoginRoute;
+  "/runs/$runKey": typeof AuthedRunsRunKeyRoute;
+  "/runs/": typeof AuthedRunsIndexRoute;
 }
 export interface FileRoutesByTo {
   "/login": typeof LoginRoute;
   "/": typeof AuthedIndexRoute;
+  "/runs/$runKey": typeof AuthedRunsRunKeyRoute;
+  "/runs": typeof AuthedRunsIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/_authed": typeof AuthedRouteWithChildren;
   "/login": typeof LoginRoute;
   "/_authed/": typeof AuthedIndexRoute;
+  "/_authed/runs/$runKey": typeof AuthedRunsRunKeyRoute;
+  "/_authed/runs/": typeof AuthedRunsIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/login";
+  fullPaths: "/" | "/login" | "/runs/$runKey" | "/runs/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/login" | "/";
-  id: "__root__" | "/_authed" | "/login" | "/_authed/";
+  to: "/login" | "/" | "/runs/$runKey" | "/runs";
+  id:
+    | "__root__"
+    | "/_authed"
+    | "/login"
+    | "/_authed/"
+    | "/_authed/runs/$runKey"
+    | "/_authed/runs/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -78,15 +102,33 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthedIndexRouteImport;
       parentRoute: typeof AuthedRoute;
     };
+    "/_authed/runs/": {
+      id: "/_authed/runs/";
+      path: "/runs";
+      fullPath: "/runs/";
+      preLoaderRoute: typeof AuthedRunsIndexRouteImport;
+      parentRoute: typeof AuthedRoute;
+    };
+    "/_authed/runs/$runKey": {
+      id: "/_authed/runs/$runKey";
+      path: "/runs/$runKey";
+      fullPath: "/runs/$runKey";
+      preLoaderRoute: typeof AuthedRunsRunKeyRouteImport;
+      parentRoute: typeof AuthedRoute;
+    };
   }
 }
 
 interface AuthedRouteChildren {
   AuthedIndexRoute: typeof AuthedIndexRoute;
+  AuthedRunsRunKeyRoute: typeof AuthedRunsRunKeyRoute;
+  AuthedRunsIndexRoute: typeof AuthedRunsIndexRoute;
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedIndexRoute: AuthedIndexRoute,
+  AuthedRunsRunKeyRoute: AuthedRunsRunKeyRoute,
+  AuthedRunsIndexRoute: AuthedRunsIndexRoute,
 };
 
 const AuthedRouteWithChildren =

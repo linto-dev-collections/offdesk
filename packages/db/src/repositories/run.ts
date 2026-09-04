@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray } from "drizzle-orm";
 import type { Db } from "../client.ts";
-import { runs } from "../schema/offdesk.ts";
+import { projects, runs } from "../schema/offdesk.ts";
 
 /** DDL の `runs_status_ck` と同じ一覧（テーブル定義書 §4-3）。 */
 const RUN_STATUSES = [
@@ -411,4 +411,179 @@ export const markRunDone = async (
     .returning({ runKey: runs.runKey });
 
   return rows.length > 0;
+};
+
+/* ここから下は P7a（管理画面）が使う。 */
+
+/**
+ * 並び替えに使える列（plans/security.md 脅威 11）。
+ *
+ * **`packages/contract` の `RunSort` と同じ 2 値だが、型は import しない** ——
+ * `packages/db` が API の契約に依存すると矢印が逆を向く（要件 `I-8`）。
+ * 食い違えば `apps/app` 側の呼び出しが型で落ちる。
+ */
+export type RunSortColumn = "createdAt" | "updatedAt";
+
+/**
+ * **列そのものを引く表。** これが脅威 11 の対策の実体で、
+ * ここに無い文字列は `ORDER BY` に到達できない（受け取るのは union 型だけ）。
+ */
+const RUN_SORT_COLUMNS = {
+  createdAt: runs.createdAt,
+  updatedAt: runs.updatedAt,
+} as const satisfies Record<RunSortColumn, unknown>;
+
+export type RunListFilter = {
+  readonly projectId?: string | undefined;
+  readonly status?: RunStatus | undefined;
+  /** これ以降に作られた run だけ（epoch ミリ秒）。 */
+  readonly since: number;
+};
+
+export type RunListPage = RunListFilter & {
+  readonly limit: number;
+  readonly offset: number;
+  readonly sort: RunSortColumn;
+  readonly order: "asc" | "desc";
+};
+
+/**
+ * 一覧の 1 行。**`RunRecord` を返さない。**
+ *
+ * 一覧は 50 行あるので、`prompt` の全文と cc セッションの URL まで毎行運ぶと
+ * 応答が跳ねる。**画面が出す列だけ**にしてある（切るのは usecase）。
+ */
+export type RunListRow = {
+  readonly runKey: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly status: RunStatus;
+  readonly prompt: string;
+  readonly threadId: string | null;
+  readonly ctxUsedTokens: number | null;
+  readonly ctxModel: string | null;
+  readonly createdAt: number;
+  readonly finishedAt: number | null;
+};
+
+/** `dashboard.ts` も同じ形で引く（列の並びを 1 か所に持つ）。 */
+export const RUN_LIST_COLUMNS = {
+  runKey: runs.runKey,
+  projectId: runs.projectId,
+  projectName: projects.name,
+  status: runs.status,
+  prompt: runs.prompt,
+  threadId: runs.threadId,
+  ctxUsedTokens: runs.ctxUsedTokens,
+  ctxModel: runs.ctxModel,
+  createdAt: runs.createdAt,
+  finishedAt: runs.finishedAt,
+} as const;
+
+type RunListRawRow = {
+  runKey: string;
+  projectId: string;
+  projectName: string;
+  status: string;
+  prompt: string;
+  threadId: string | null;
+  ctxUsedTokens: number | null;
+  ctxModel: string | null;
+  createdAt: Date;
+  finishedAt: Date | null;
+};
+
+export const toRunListRow = (row: RunListRawRow): RunListRow => ({
+  runKey: row.runKey,
+  projectId: row.projectId,
+  projectName: row.projectName,
+  status: row.status as RunStatus,
+  prompt: row.prompt,
+  threadId: row.threadId,
+  ctxUsedTokens: row.ctxUsedTokens,
+  ctxModel: row.ctxModel,
+  createdAt: row.createdAt.getTime(),
+  finishedAt: row.finishedAt?.getTime() ?? null,
+});
+
+/**
+ * 絞り込みの条件。**`listRuns` と `countRuns` で同じものを使う** ——
+ * 別々に書くと「1 ページ目は 3 件なのに総数が 40」のようなずれ方をする。
+ */
+const runListWhere = (filter: RunListFilter) =>
+  and(
+    gte(runs.createdAt, new Date(filter.since)),
+    filter.projectId === undefined
+      ? undefined
+      : eq(runs.projectId, filter.projectId),
+    filter.status === undefined ? undefined : eq(runs.status, filter.status),
+  );
+
+/**
+ * 管理画面の run 一覧（テーブル定義書 §6）。
+ *
+ * `project_id` の絞り込み ＋ `created_at` の並びは `runs_project_created_idx` と
+ * 順序が揃う。`status` だけのときは `runs_status_created_idx`。
+ */
+export const listRuns = async (
+  db: Db,
+  page: RunListPage,
+): Promise<readonly RunListRow[]> => {
+  const column = RUN_SORT_COLUMNS[page.sort];
+
+  const rows = await db
+    .select(RUN_LIST_COLUMNS)
+    .from(runs)
+    .innerJoin(projects, eq(projects.id, runs.projectId))
+    .where(runListWhere(page))
+    .orderBy(page.order === "asc" ? asc(column) : desc(column))
+    .limit(page.limit)
+    .offset(page.offset);
+
+  return rows.map(toRunListRow);
+};
+
+/**
+ * 絞り込んだ総数（ページャの「n / m」）。
+ *
+ * **`projects` を join しない。** 総数に名前は要らず、join を足すと
+ * `runs_project_created_idx` だけで数え切れなくなる。
+ */
+export const countRuns = async (
+  db: Db,
+  filter: RunListFilter,
+): Promise<number> => {
+  const [row] = await db
+    .select({ total: count() })
+    .from(runs)
+    .where(runListWhere(filter));
+
+  return row?.total ?? 0;
+};
+
+export type RunDetailRow = RunRecord & {
+  readonly projectName: string;
+  readonly repoUrl: string;
+};
+
+/** run 詳細の頭（プロジェクト名とリポジトリは画面が出す）。 */
+export const findRunDetail = async (
+  db: Db,
+  runKey: string,
+): Promise<RunDetailRow | null> => {
+  const [row] = await db
+    .select({
+      ...RUN_COLUMNS,
+      projectName: projects.name,
+      repoUrl: projects.repoUrl,
+    })
+    .from(runs)
+    .innerJoin(projects, eq(projects.id, runs.projectId))
+    .where(eq(runs.runKey, runKey))
+    .limit(1);
+
+  if (row === undefined) return null;
+
+  const { projectName, repoUrl, ...run } = row;
+  return { ...toRunRecord(run), projectName, repoUrl };
 };

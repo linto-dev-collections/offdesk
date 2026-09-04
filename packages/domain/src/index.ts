@@ -37,6 +37,7 @@ export {
   threadName,
   truncate,
 } from "./discord/limits.ts";
+export { discordThreadUrl } from "./discord/url.ts";
 export type {
   FireOutcome,
   FireSession,

@@ -291,6 +291,19 @@ export const inbox = sqliteTable(
     index("inbox_pending_idx")
       .on(t.runKey, t.id)
       .where(sql`${t.takenAt} IS NULL`),
+    /*
+      **run 詳細の時系列**（P7a。テーブル定義書 §6 の「各表の run 索引」）。
+
+      **上の部分索引では足りない。** あれは `WHERE taken_at IS NULL` 付きなので、
+      渡し終わった行まで含めて読む詳細画面のクエリには選ばれない ——
+      2026-09-05 に `EXPLAIN QUERY PLAN` で `SCAN inbox` を実測した
+      （`asks` と `events` には条件無しの run 索引があるので、
+      3 本引きのうち `inbox` だけが全表走査に落ちていた）。
+
+      **部分索引を非部分に差し替えて 1 本にはしない。** `peekQueued` は
+      素の文が届くたびに走る hot path で、そちらは索引が小さいほど速い。
+    */
+    index("inbox_run_id_idx").on(t.runKey, t.id),
     uniqueIndex("inbox_message_uidx").on(t.messageId),
     index("inbox_taken_by_idx")
       .on(t.takenByRunKey)

@@ -163,3 +163,43 @@ export const markQueuedTaken = async (
 
   return rows.map((row) => row.id);
 };
+
+/* ここから下は P7a（管理画面）が使う。 */
+
+/**
+ * 渡し終わった分も含めて全部読む（run 詳細の時系列）。
+ *
+ * **`peekQueued` と分けてある。** あちらは部分索引（`inbox_pending_idx`）に
+ * 乗る「未処理だけ」の引きで、印が立った行は索引から落ちる ——
+ * 詳細画面が見たいのは**渡った跡**なので、条件を外した別の引きが要る。
+ */
+export type InboxHistoryRecord = InboxRecord & {
+  readonly takenAt: number | null;
+  readonly takenByRunKey: string | null;
+};
+
+export const listInbox = async (
+  db: Db,
+  runKey: string,
+): Promise<readonly InboxHistoryRecord[]> => {
+  const rows = await db
+    .select({
+      id: inbox.id,
+      runKey: inbox.runKey,
+      authorDiscordUserId: inbox.authorDiscordUserId,
+      messageId: inbox.messageId,
+      body: inbox.body,
+      takenAt: inbox.takenAt,
+      takenByRunKey: inbox.takenByRunKey,
+      createdAt: inbox.createdAt,
+    })
+    .from(inbox)
+    .where(eq(inbox.runKey, runKey))
+    .orderBy(asc(inbox.id));
+
+  return rows.map((row) => ({
+    ...row,
+    takenAt: row.takenAt?.getTime() ?? null,
+    createdAt: row.createdAt.getTime(),
+  }));
+};

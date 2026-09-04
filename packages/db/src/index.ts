@@ -20,8 +20,14 @@ export {
   findAskByAnswerMessage,
   findLatestUndeliveredAsk,
   insertAsk,
+  listAsks,
   markAskDelivered,
 } from "./repositories/ask.ts";
+export type { PendingAskRow } from "./repositories/dashboard.ts";
+export {
+  listPendingAsks,
+  listRunsByStatus,
+} from "./repositories/dashboard.ts";
 export type { EventKind, EventRecord } from "./repositories/event.ts";
 export {
   attachEventMessage,
@@ -29,8 +35,12 @@ export {
   insertEvent,
   listEvents,
 } from "./repositories/event.ts";
-export type { InboxRecord } from "./repositories/inbox.ts";
+export type {
+  InboxHistoryRecord,
+  InboxRecord,
+} from "./repositories/inbox.ts";
 export {
+  listInbox,
   markQueuedTaken,
   peekQueued,
   peekQueuedInThread,
@@ -58,16 +68,24 @@ export {
 } from "./repositories/project.ts";
 export type {
   InsertRunInput,
+  RunDetailRow,
+  RunListFilter,
+  RunListPage,
+  RunListRow,
   RunRecord,
+  RunSortColumn,
   RunStatus,
 } from "./repositories/run.ts";
 export {
   abandonAndStart,
   attachRunThread,
+  countRuns,
   findRun,
   findRunByThread,
+  findRunDetail,
   insertRun,
   isTerminalStatus,
+  listRuns,
   markRunDone,
   markRunFailed,
   markRunResumed,

@@ -835,3 +835,124 @@ describe("plans の CHECK と索引", () => {
     expect(JSON.stringify(results)).toContain("plans_updated_idx");
   });
 });
+
+describe("管理画面のクエリが索引を使う（P7a §7 の「一覧が遅い」）", () => {
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+  const ASK_ID = "ask_0123456789abcdef";
+
+  const seed = async (): Promise<void> => {
+    await seedProject({
+      name: "offdesk-test",
+      discordChannelId: "111111111111111111",
+    });
+    await env.DB.prepare(
+      `INSERT INTO runs (run_key, project_id, prompt, requester_discord_user_id, channel_id)
+       SELECT ?, id, 'ping', '111111111111111111', '111111111111111111' FROM projects LIMIT 1`,
+    )
+      .bind(RUN_KEY)
+      .run();
+  };
+
+  const plan = async (sql: string, ...values: unknown[]): Promise<string> => {
+    const { results } = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .bind(...values)
+      .all();
+    return JSON.stringify(results);
+  };
+
+  /*
+    **`project_id` の絞り込みと `created_at` の並びが揃う**
+    （`runs_project_created_idx` は `(project_id, created_at)`）。
+    揃っていないと 50 件のページを出すのに全表を並べ替えることになる。
+  */
+  it("プロジェクトで絞った一覧は runs_project_created_idx を使う", async () => {
+    await seed();
+
+    expect(
+      await plan(
+        "SELECT run_key FROM runs WHERE project_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 50",
+        "p1",
+        0,
+      ),
+    ).toContain("runs_project_created_idx");
+  });
+
+  it("状態で絞った一覧は runs_status_created_idx を使う", async () => {
+    await seed();
+
+    expect(
+      await plan(
+        "SELECT run_key FROM runs WHERE status = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 50",
+        "running",
+        0,
+      ),
+    ).toContain("runs_status_created_idx");
+  });
+
+  /** ダッシュボードの「走っている run」と「直近の失敗」。 */
+  it("状態のまとまりで引く 2 枚も runs_status_created_idx を使う", async () => {
+    await seed();
+
+    expect(
+      await plan(
+        "SELECT run_key FROM runs WHERE status IN ('queued','running','waiting') ORDER BY created_at DESC LIMIT 10",
+      ),
+    ).toContain("runs_status_created_idx");
+  });
+
+  it("run 詳細の 3 本引きはそれぞれの run 索引を使う", async () => {
+    await seed();
+
+    expect(
+      await plan(
+        "SELECT ask_id FROM asks WHERE run_key = ? ORDER BY created_at",
+        RUN_KEY,
+      ),
+    ).toContain("asks_run_created_idx");
+    expect(
+      await plan(
+        "SELECT id FROM events WHERE run_key = ? ORDER BY id",
+        RUN_KEY,
+      ),
+    ).toContain("events_run_id_idx");
+    /*
+      **`inbox` だけ条件無しの索引が別に要った**（P7a で足した
+      `inbox_run_id_idx`）。`inbox_pending_idx` は `WHERE taken_at IS NULL` の
+      部分索引なので、渡し終わった行まで読む詳細画面のクエリには選ばれず、
+      2026-09-05 の実測で `SCAN inbox` に落ちていた。
+    */
+    expect(
+      await plan("SELECT id FROM inbox WHERE run_key = ? ORDER BY id", RUN_KEY),
+    ).toContain("inbox_run_id_idx");
+  });
+
+  /*
+    **`delivered_at IS NULL` を書き落とさない。** `asks_delivered_ck` があるので
+    条件としては `answer IS NULL` で足りるが、部分索引の条件と揃えないと
+    索引が選ばれず全表走査に落ちる（テーブル定義書 付録 A-3）。
+  */
+  it("未回答の ask は asks_undelivered_idx を使う", async () => {
+    await seed();
+    await env.DB.prepare(
+      "INSERT INTO asks (ask_id, run_key, question) VALUES (?, ?, ?)",
+    )
+      .bind(ASK_ID, RUN_KEY, "?")
+      .run();
+
+    expect(
+      await plan(
+        "SELECT ask_id FROM asks WHERE delivered_at IS NULL AND answer IS NULL ORDER BY created_at DESC LIMIT 10",
+      ),
+    ).toContain("asks_undelivered_idx");
+  });
+
+  it("条件を落とすと部分索引が選ばれない（書き落としの実測）", async () => {
+    await seed();
+
+    expect(
+      await plan(
+        "SELECT ask_id FROM asks WHERE answer IS NULL ORDER BY created_at DESC LIMIT 10",
+      ),
+    ).not.toContain("asks_undelivered_idx");
+  });
+});

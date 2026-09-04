@@ -15,7 +15,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@workspace/ui/components/ui/sidebar";
-import { NAV_GROUPS } from "../lib/nav.ts";
+import { NAV_GROUPS, navItemFor } from "../lib/nav.ts";
 import { orpc } from "../lib/orpc.ts";
 import { NavUser } from "./nav-user.tsx";
 
@@ -47,6 +47,12 @@ const Nav = () => {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  /*
+    **強調とパンくずが同じ 1 本を見る**（`navItemFor`）。`item.to === pathname` に
+    戻すと、`/runs/$runKey` を開いたときにサイドバーの光が消える。
+    項目の同一性は参照で比べられる（`NAV_GROUPS` の要素そのものが返る）。
+  */
+  const current = navItemFor(pathname);
 
   return NAV_GROUPS.map((group) => (
     <SidebarGroup key={group.label}>
@@ -57,7 +63,7 @@ const Nav = () => {
             <SidebarMenuItem key={item.label}>
               <SidebarMenuButton
                 tooltip={item.label}
-                isActive={item.to === pathname}
+                isActive={current === item}
                 render={<Link to={item.to} />}
               >
                 <HugeiconsIcon icon={item.icon} strokeWidth={2} />

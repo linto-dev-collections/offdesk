@@ -1,0 +1,22 @@
+{
+  "extends": "@offdesk/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // **`@cloudflare/workers-types` も `cloudflare:test` も入れない。** 画面の
+    // テストは client と同じ型で見る（あれを入れると D1 の API が見えてしまう）。
+    "types": ["vite/client", "node"],
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/types/client-test",
+    "rootDir": "./test/client",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.client-test.tsbuildinfo"
+  },
+  "include": ["test/client/**/*.ts", "test/client/**/*.tsx"],
+  "references": [
+    { "path": "./tsconfig.client.json" },
+    { "path": "../../packages/ui" },
+    { "path": "../../packages/contract" }
+  ]
+}

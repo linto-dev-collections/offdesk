@@ -105,6 +105,7 @@ const ENDPOINT_GATED_ENV_NAMES: readonly string[] = [
   "DISCORD_BOT_TOKEN",
   "DISCORD_PUBLIC_KEY",
   "DISCORD_APPLICATION_ID",
+  "DISCORD_GUILD_ID",
   "OWNER_DISCORD_USER_ID",
   "OFFDESK_TOKEN",
   "FIRE_TOKEN_KEY",
@@ -274,6 +275,8 @@ export const web = await Vite("app", {
       // 公開鍵は秘密ではないが、値を Alchemy の状態ファイルに平文で残さない側に揃える。
       DISCORD_PUBLIC_KEY: varOf("DISCORD_PUBLIC_KEY"),
       DISCORD_APPLICATION_ID: varOf("DISCORD_APPLICATION_ID"),
+      // P7a。スレッドの URL を組むのに要る。**秘密ではない**（公開の snowflake）。
+      DISCORD_GUILD_ID: varOf("DISCORD_GUILD_ID"),
       OWNER_DISCORD_USER_ID: varOf("OWNER_DISCORD_USER_ID"),
       OFFDESK_TOKEN: secretOf("OFFDESK_TOKEN"),
       FIRE_TOKEN_KEY: secretOf("FIRE_TOKEN_KEY"),

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { asks } from "../schema/offdesk.ts";
 
@@ -66,7 +66,7 @@ type AskRow = {
  * ここで例外を投げると、1 行の壊れた `options` が run 詳細を丸ごと落とす。
  * ボタンが 1 つ減る方が安い（`bytes.ts` の `toBytes` と同じ、境界で正規化する判断）。
  */
-const parseOptions = (raw: string): readonly string[] => {
+export const parseOptions = (raw: string): readonly string[] => {
   try {
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -275,4 +275,25 @@ export const findAskByAnswerMessage = async (
     .limit(1);
 
   return row === undefined ? null : toAskRecord(row);
+};
+
+/* ここから下は P7a（管理画面）が使う。 */
+
+/**
+ * run 詳細の時系列に混ぜる問い（`asks_run_created_idx`）。
+ *
+ * **`created_at` の昇順が起きた順。** `ask_id` は乱数なので順序を持たない
+ * （`events` / `inbox` の id とはそこが違う）。
+ */
+export const listAsks = async (
+  db: Db,
+  runKey: string,
+): Promise<readonly AskRecord[]> => {
+  const rows = await db
+    .select(ASK_COLUMNS)
+    .from(asks)
+    .where(eq(asks.runKey, runKey))
+    .orderBy(asc(asks.createdAt));
+
+  return rows.map(toAskRecord);
 };

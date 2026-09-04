@@ -1,4 +1,28 @@
+export type {
+  DashboardStorePort,
+  DashboardView,
+  PendingAskRowView,
+  PendingAskView,
+} from "./get-dashboard.ts";
+export {
+  DASHBOARD_ASK_LIMIT,
+  DASHBOARD_FAILED_STATUSES,
+  DASHBOARD_FAILURE_LIMIT,
+  DASHBOARD_LIVE_LIMIT,
+  DASHBOARD_LIVE_STATUSES,
+  getDashboard,
+} from "./get-dashboard.ts";
 export { getHealth } from "./get-health.ts";
+export type {
+  AskRowView,
+  EventRowView,
+  InboxRowView,
+  RunDetailRowView,
+  RunDetailStorePort,
+  RunDetailView,
+  TimelineEntryView,
+} from "./get-run-detail.ts";
+export { getRunDetail, mergeTimeline } from "./get-run-detail.ts";
 export type {
   LaunchRunDeps,
   LaunchRunInput,
@@ -10,6 +34,23 @@ export type {
   ProjectSummaryView,
 } from "./list-projects.ts";
 export { listProjectSummaries } from "./list-projects.ts";
+export type {
+  ListRunsDeps,
+  ListRunsInput,
+  RunListFilterInput,
+  RunListView,
+  RunRow,
+  RunStatusView,
+  RunStorePort,
+  RunSummaryView,
+} from "./list-runs.ts";
+export {
+  contextPercentOf,
+  listRunSummaries,
+  RUN_PAGE_SIZE,
+  RUN_PROMPT_PREVIEW_LENGTH,
+  toRunSummary,
+} from "./list-runs.ts";
 export type {
   AnnouncerPort,
   PostResult,

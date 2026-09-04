@@ -18,9 +18,10 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
   },
   "include": ["test/**/*.ts"],
-  // `test/release` は node の型で見る別プロジェクト（`tsconfig.release.json`）。
-  // ここで見ると `node:fs` が解決できず、あちらで見ると `cloudflare:test` が解決できない。
-  "exclude": ["test/release/**"],
+  // `test/release` は node の型で見る別プロジェクト（`tsconfig.release.json`）、
+  // `test/client` は DOM の型で見る別プロジェクト（`tsconfig.client-test.json`）。
+  // ここで見ると `node:fs` と DOM が解決できず、あちらで見ると `cloudflare:test` が解決できない。
+  "exclude": ["test/release/**", "test/client/**"],
   "references": [
     { "path": "./tsconfig.worker.json" },
     { "path": "../../packages/auth" },

@@ -23,6 +23,7 @@ export default defineConfig({
           DISCORD_BOT_TOKEN: "test-discord-bot-token",
           DISCORD_PUBLIC_KEY: "",
           DISCORD_APPLICATION_ID: "test-application-id",
+          DISCORD_GUILD_ID: "999999999999999999",
           OWNER_DISCORD_USER_ID: "111111111111111111",
           OFFDESK_TOKEN: "test-offdesk-token-0123456789abcdef",
           // base64 の 32 バイト（AES-256）。テスト専用の固定値。
@@ -44,7 +45,8 @@ export default defineConfig({
   test: {
     name: "app",
     include: ["test/**/*.test.ts"],
-    exclude: ["**/node_modules/**", "test/release/**"],
+    // `test/client` は jsdom の別プロジェクト（`vitest.client.config.ts`）。
+    exclude: ["**/node_modules/**", "test/release/**", "test/client/**"],
     setupFiles: ["./test/vitest.setup.ts"],
   },
 });

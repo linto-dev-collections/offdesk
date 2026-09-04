@@ -6,7 +6,7 @@
       "ignoreDependencies": ["@offdesk/config"]
     },
     "apps/app": {
-      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
       "ignore": ["src/client/routeTree.gen.ts"],
       "ignoreDependencies": ["cloudflare"]
     },
