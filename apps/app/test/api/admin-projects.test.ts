@@ -26,7 +26,6 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
   repoUrl: "https://github.com/linto-dev-collections/offdesk-test",
   fireUrl: FIRE_URL,
   fireToken: "sk-ant-oat01-abcdefgh-aB3x",
-  contextWindowTokens: 1_000_000,
   ...overrides,
 });
 
@@ -118,7 +117,7 @@ describe("投入", () => {
   it("2 回目は更新になる", async () => {
     await post({ projects: [entry()] });
     const response = await post({
-      projects: [entry({ contextWindowTokens: 200_000 })],
+      projects: [entry({ repoUrl: "https://github.com/x/updated" })],
     });
 
     expect(await response.json()).toEqual({
@@ -183,8 +182,6 @@ describe("入力の検査（脅威 3 の 2 層目）", () => {
     ["channel が数字でない", { discordChannelId: "11111111111111x" }],
     ["channel が短い", { discordChannelId: "1111" }],
     ["repoUrl が http", { repoUrl: "http://github.com/x/y" }],
-    ["context が 0", { contextWindowTokens: 0 }],
-    ["context が小数", { contextWindowTokens: 1.5 }],
   ])("%s なら 400", async (_label, overrides) => {
     expect((await post({ projects: [entry(overrides)] })).status).toBe(400);
   });

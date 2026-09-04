@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4407c027-ca38-4160-9c8b-c1e44a6de624",
+  "id": "fddba648-2437-4ff5-a7af-40d6738dd426",
   "prevId": "26fe325a-9cf1-45fa-ac87-dd2fc42c1c56",
   "tables": {
     "accounts": {
@@ -502,14 +502,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "context_window_tokens": {
-          "name": "context_window_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 200000
-        },
         "disabled_at": {
           "name": "disabled_at",
           "type": "integer",
@@ -569,10 +561,6 @@
         "projects_fire_url_ck": {
           "name": "projects_fire_url_ck",
           "value": "\"projects\".\"fire_url\" LIKE 'https://api.anthropic.com/%'"
-        },
-        "projects_ctx_window_ck": {
-          "name": "projects_ctx_window_ck",
-          "value": "\"projects\".\"context_window_tokens\" > 0"
         }
       }
     },

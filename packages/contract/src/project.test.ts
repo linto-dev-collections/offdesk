@@ -15,7 +15,6 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
   repoUrl: "https://github.com/linto-dev-collections/offdesk-test",
   fireUrl: "https://api.anthropic.com/v1/claude_code/routines/trig_abc/fire",
   fireToken: "sk-ant-oat01-abcdefgh",
-  contextWindowTokens: 1_000_000,
   ...overrides,
 });
 
@@ -96,10 +95,6 @@ describe("その他の形", () => {
   it.each([
     ["repoUrl が http", { repoUrl: "http://github.com/x/y" }],
     ["fireToken が短い", { fireToken: "short" }],
-    ["context が 0", { contextWindowTokens: 0 }],
-    ["context が負", { contextWindowTokens: -1 }],
-    ["context が小数", { contextWindowTokens: 1.5 }],
-    ["context が文字列", { contextWindowTokens: "1000000" }],
   ])("%s は落ちる", (_label, overrides) => {
     expect(parse([entry(overrides)]).success).toBe(false);
   });

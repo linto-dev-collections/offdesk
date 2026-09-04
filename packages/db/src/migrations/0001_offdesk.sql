@@ -19,7 +19,6 @@ CREATE TABLE `projects` (
 	`discord_channel_id` text NOT NULL,
 	`repo_url` text NOT NULL,
 	`fire_url` text NOT NULL,
-	`context_window_tokens` integer DEFAULT 200000 NOT NULL,
 	`disabled_at` integer,
 	`created_at` integer DEFAULT (unixepoch('subsec') * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch('subsec') * 1000) NOT NULL,
@@ -29,8 +28,7 @@ CREATE TABLE `projects` (
 	CONSTRAINT "projects_channel_shape_ck" CHECK("projects"."discord_channel_id" NOT GLOB '*[^0-9]*'
        AND length("projects"."discord_channel_id") BETWEEN 15 AND 24),
 	CONSTRAINT "projects_repo_url_ck" CHECK("projects"."repo_url" LIKE 'https://%'),
-	CONSTRAINT "projects_fire_url_ck" CHECK("projects"."fire_url" LIKE 'https://api.anthropic.com/%'),
-	CONSTRAINT "projects_ctx_window_ck" CHECK("projects"."context_window_tokens" > 0)
+	CONSTRAINT "projects_fire_url_ck" CHECK("projects"."fire_url" LIKE 'https://api.anthropic.com/%')
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `projects_name_uidx` ON `projects` (`name`);--> statement-breakpoint

@@ -44,7 +44,6 @@ describe("listProjects", () => {
       "discordChannelId",
       "repoUrl",
       "fireUrl",
-      "contextWindowTokens",
       "disabledAt",
     ]);
     expect(JSON.stringify(project)).not.toContain("ciphertext");
@@ -98,7 +97,6 @@ describe("upsertProjectWithCredential", () => {
         discordChannelId: CHANNEL_ALPHA,
         repoUrl: "https://github.com/x/y",
         fireUrl: FIRE_URL,
-        contextWindowTokens: 1_000_000,
       },
       encrypted,
     );
@@ -109,7 +107,6 @@ describe("upsertProjectWithCredential", () => {
         discordChannelId: CHANNEL_ALPHA,
         repoUrl: "https://github.com/x/z",
         fireUrl: FIRE_URL,
-        contextWindowTokens: 200_000,
       },
       encrypted,
     );
@@ -124,18 +121,15 @@ describe("upsertProjectWithCredential", () => {
     const projectId = await seedProject({
       name: "offdesk-test",
       discordChannelId: CHANNEL_ALPHA,
-      contextWindowTokens: 200_000,
     });
     await seedProject({
       name: "offdesk-test",
       discordChannelId: CHANNEL_ALPHA,
-      contextWindowTokens: 1_000_000,
       repoUrl: "https://github.com/x/updated",
     });
 
     const project = await findProjectById(db(), projectId);
 
-    expect(project?.contextWindowTokens).toBe(1_000_000);
     expect(project?.repoUrl).toBe("https://github.com/x/updated");
   });
 
@@ -167,7 +161,6 @@ describe("upsertProjectWithCredential", () => {
           discordChannelId: CHANNEL_ALPHA,
           repoUrl: "https://github.com/x/y",
           fireUrl: "https://evil.example.com/v1/fire",
-          contextWindowTokens: 1_000_000,
         },
         encrypted,
       ),

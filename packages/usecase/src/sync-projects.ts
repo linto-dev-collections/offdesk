@@ -14,7 +14,6 @@ export type ProjectStoreWritePort = {
       readonly discordChannelId: string;
       readonly repoUrl: string;
       readonly fireUrl: string;
-      readonly contextWindowTokens: number;
     },
     encrypted: {
       readonly ciphertext: Uint8Array;
@@ -31,7 +30,6 @@ export type SyncProjectsEntry = {
   readonly repoUrl: string;
   readonly fireUrl: string;
   readonly fireToken: string;
-  readonly contextWindowTokens: number;
 };
 
 export type SyncProjectsApplied = {
@@ -63,7 +61,6 @@ export const syncProjects = async (
         discordChannelId: entry.discordChannelId,
         repoUrl: entry.repoUrl,
         fireUrl: entry.fireUrl,
-        contextWindowTokens: entry.contextWindowTokens,
       },
       encrypted,
     );

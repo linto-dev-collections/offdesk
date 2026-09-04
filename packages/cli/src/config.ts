@@ -63,7 +63,6 @@ export const describeProjects = (projects: LoadedProjects): string =>
         `      channel  ${project.discordChannelId}`,
         `      repo     ${project.repoUrl}`,
         `      fire     ${host}（…${project.fireToken.slice(-4)}）`,
-        `      context  ${project.contextWindowTokens.toLocaleString("en-US")} tokens`,
       ].join("\n");
     })
     .join("\n");

@@ -29,7 +29,6 @@ export const ProjectSyncEntry = z.object({
   repoUrl: z.string().startsWith("https://"),
   fireUrl: z.string().startsWith(FIRE_URL_PREFIX),
   fireToken: z.string().min(8),
-  contextWindowTokens: z.number().int().positive(),
 });
 export type ProjectSyncEntry = z.infer<typeof ProjectSyncEntry>;
 
@@ -87,7 +86,6 @@ export const ProjectSummary = z.object({
   repoUrl: z.string(),
   fireUrlHost: z.string(),
   fireTokenLast4: z.string().nullable(),
-  contextWindowTokens: z.number().int(),
   disabled: z.boolean(),
 });
 export type ProjectSummary = z.infer<typeof ProjectSummary>;

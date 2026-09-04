@@ -23,7 +23,6 @@ export const seedProject = async (input: {
   readonly fireToken?: string;
   readonly fireUrl?: string;
   readonly repoUrl?: string;
-  readonly contextWindowTokens?: number;
 }): Promise<string> => {
   const encrypted = await encryptFireToken(
     env.FIRE_TOKEN_KEY,
@@ -39,7 +38,6 @@ export const seedProject = async (input: {
         input.repoUrl ??
         "https://github.com/linto-dev-collections/offdesk-test",
       fireUrl: input.fireUrl ?? FIRE_URL,
-      contextWindowTokens: input.contextWindowTokens ?? 1_000_000,
     },
     encrypted,
   );

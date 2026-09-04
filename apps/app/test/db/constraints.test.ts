@@ -13,8 +13,8 @@ import { seedProject } from "./support.ts";
 
 const insertProject = (values: Record<string, unknown>) =>
   env.DB.prepare(
-    `INSERT INTO projects (id, name, discord_channel_id, repo_url, fire_url, context_window_tokens)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, discord_channel_id, repo_url, fire_url)
+     VALUES (?, ?, ?, ?, ?)`,
   )
     .bind(
       values.id ?? "p1",
@@ -23,7 +23,6 @@ const insertProject = (values: Record<string, unknown>) =>
       values.repo_url ?? "https://github.com/x/y",
       values.fire_url ??
         "https://api.anthropic.com/v1/claude_code/routines/trig_a/fire",
-      values.context_window_tokens ?? 1_000_000,
     )
     .run();
 
@@ -35,8 +34,6 @@ describe("projects の CHECK", () => {
     ["channel が数字でない", { discord_channel_id: "11111111111111x" }],
     ["channel が短すぎる", { discord_channel_id: "11111111111111" }],
     ["repo_url が http", { repo_url: "http://github.com/x/y" }],
-    ["context_window が 0", { context_window_tokens: 0 }],
-    ["context_window が負", { context_window_tokens: -1 }],
   ])("%s は入らない", async (_label, values) => {
     await expect(insertProject(values)).rejects.toThrow();
   });

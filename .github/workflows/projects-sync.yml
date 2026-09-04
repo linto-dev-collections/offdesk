@@ -46,25 +46,32 @@ jobs:
           fi
           printf '%s' "${PROJECTS_JSON}" > projects.json
 
+      # **入力は env で渡す。** `${{ }}` を `run:` の中へ直に書くと、
+      # 入力の文字列がシェルとして解釈される（`guild_id` は自由記述）。
+      # GitHub の hardening ガイドが env 経由を指定している。
       - name: 投入する
         env:
           OFFDESK_URL: ${{ vars.OFFDESK_URL }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            pnpm projects:sync -- --dry-run
-          else
+          # **送るのは "false" と読めたときだけ**（fail-closed）。
+          # 逆に書くと、値が想定外だったときに「送らないつもりが送る」側へ倒れる。
+          if [ "${DRY_RUN}" = "false" ]; then
             pnpm projects:sync
+          else
+            pnpm projects:sync -- --dry-run
           fi
 
       - name: /offdesk を登録し直す
-        if: inputs.register_commands && inputs.dry_run == false
+        if: ${{ inputs.register_commands && !inputs.dry_run }}
         env:
           OFFDESK_URL: ${{ vars.OFFDESK_URL }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
+          GUILD_ID: ${{ inputs.guild_id }}
         run: |
-          if [ -n "${{ inputs.guild_id }}" ]; then
-            pnpm commands:register -- --guild "${{ inputs.guild_id }}"
+          if [ -n "${GUILD_ID}" ]; then
+            pnpm commands:register -- --guild "${GUILD_ID}"
           else
             pnpm commands:register
           fi

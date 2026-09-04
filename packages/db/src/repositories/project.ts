@@ -18,7 +18,6 @@ export type ProjectRecord = {
   readonly discordChannelId: string;
   readonly repoUrl: string;
   readonly fireUrl: string;
-  readonly contextWindowTokens: number;
   readonly disabledAt: number | null;
 };
 
@@ -31,7 +30,6 @@ export type UpsertProjectInput = {
   readonly discordChannelId: string;
   readonly repoUrl: string;
   readonly fireUrl: string;
-  readonly contextWindowTokens: number;
 };
 
 /*
@@ -44,7 +42,6 @@ const PROJECT_COLUMNS = {
   discordChannelId: projects.discordChannelId,
   repoUrl: projects.repoUrl,
   fireUrl: projects.fireUrl,
-  contextWindowTokens: projects.contextWindowTokens,
   disabledAt: projects.disabledAt,
 } as const;
 
@@ -54,7 +51,6 @@ type ProjectRow = {
   discordChannelId: string;
   repoUrl: string;
   fireUrl: string;
-  contextWindowTokens: number;
   disabledAt: Date | null;
 };
 
@@ -64,7 +60,6 @@ const toProjectRecord = (row: ProjectRow): ProjectRecord => ({
   discordChannelId: row.discordChannelId,
   repoUrl: row.repoUrl,
   fireUrl: row.fireUrl,
-  contextWindowTokens: row.contextWindowTokens,
   disabledAt: row.disabledAt?.getTime() ?? null,
 });
 
@@ -162,7 +157,6 @@ export const upsertProjectWithCredential = async (
           discordChannelId: input.discordChannelId,
           repoUrl: input.repoUrl,
           fireUrl: input.fireUrl,
-          contextWindowTokens: input.contextWindowTokens,
           updatedAt: new Date(),
         },
       }),

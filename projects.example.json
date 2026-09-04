@@ -4,15 +4,13 @@
     "discordChannelId": "000000000000000000",
     "repoUrl": "https://github.com/linto-dev-collections/offdesk-test",
     "fireUrl": "https://api.anthropic.com/v1/claude_code/routines/trig_REPLACE_ME/fire",
-    "fireToken": "sk-ant-oat01-REPLACE_ME",
-    "contextWindowTokens": 1000000
+    "fireToken": "sk-ant-oat01-REPLACE_ME"
   },
   {
     "name": "dummy",
     "discordChannelId": "000000000000000001",
     "repoUrl": "https://github.com/linto-dev-collections/offdesk-test",
     "fireUrl": "https://api.anthropic.com/v1/claude_code/routines/trig_REPLACE_ME/fire",
-    "fireToken": "sk-ant-oat01-REPLACE_ME",
-    "contextWindowTokens": 1000000
+    "fireToken": "sk-ant-oat01-REPLACE_ME"
   }
 ]

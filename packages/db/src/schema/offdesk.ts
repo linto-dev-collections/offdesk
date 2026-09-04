@@ -38,9 +38,6 @@ export const projects = sqliteTable(
     discordChannelId: text("discord_channel_id").notNull(),
     repoUrl: text("repo_url").notNull(),
     fireUrl: text("fire_url").notNull(),
-    contextWindowTokens: integer("context_window_tokens")
-      .notNull()
-      .default(200_000),
     disabledAt: integer("disabled_at", { mode: "timestamp_ms" }),
     createdAt,
     updatedAt,
@@ -82,7 +79,6 @@ export const projects = sqliteTable(
       "projects_fire_url_ck",
       sql`${t.fireUrl} LIKE 'https://api.anthropic.com/%'`,
     ),
-    check("projects_ctx_window_ck", sql`${t.contextWindowTokens} > 0`),
     uniqueIndex("projects_name_uidx").on(t.name),
     uniqueIndex("projects_channel_uidx").on(t.discordChannelId),
   ],

@@ -7,7 +7,6 @@ export type ProjectSummaryView = {
   readonly repoUrl: string;
   readonly fireUrlHost: string;
   readonly fireTokenLast4: string | null;
-  readonly contextWindowTokens: number;
   readonly disabled: boolean;
 };
 
@@ -20,7 +19,6 @@ export type ProjectStoreReadPort = {
       readonly repoUrl: string;
       readonly fireUrl: string;
       readonly fireTokenLast4: string | null;
-      readonly contextWindowTokens: number;
       readonly disabledAt: number | null;
     }[]
   >;
@@ -44,7 +42,6 @@ export const listProjectSummaries = async (
     repoUrl: row.repoUrl,
     fireUrlHost: hostOf(row.fireUrl),
     fireTokenLast4: row.fireTokenLast4,
-    contextWindowTokens: row.contextWindowTokens,
     disabled: row.disabledAt !== null,
   }));
 };
