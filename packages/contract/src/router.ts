@@ -1,5 +1,6 @@
 import { oc } from "@orpc/contract";
 import { MeOutput } from "./me.ts";
+import { PlanRemoveInput, PlanRemoveOutput } from "./plan.ts";
 import { ProjectListOutput } from "./project.ts";
 
 /**
@@ -10,6 +11,13 @@ import { ProjectListOutput } from "./project.ts";
  */
 export const contract = {
   me: oc.output(MeOutput),
+  plans: {
+    /*
+      **取り消しだけを口にする**（要件 `F-E9`）。一覧は P7b で足す ——
+      いま作ると、画面の要る形が決まる前に出力の形を固めることになる。
+    */
+    remove: oc.input(PlanRemoveInput).output(PlanRemoveOutput),
+  },
   projects: {
     list: oc.output(ProjectListOutput),
   },

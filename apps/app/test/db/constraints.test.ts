@@ -646,3 +646,192 @@ describe("inbox の CHECK と索引", () => {
     expect(JSON.stringify(results)).toContain("inbox_pending_idx");
   });
 });
+
+describe("plans の CHECK と索引", () => {
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+  const OTHER_RUN_KEY = "OFFDESK-fedcba9876543210";
+  const PLAN_ID = "0123456789abcdef0123456789abcdef";
+
+  const insertPlan = (values: Record<string, unknown>) =>
+    env.DB.prepare(
+      `INSERT INTO plans (plan_id, scope_kind, scope_id, slug,
+                          last_published_run_key, file_count, total_bytes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        values.plan_id ?? PLAN_ID,
+        values.scope_kind ?? "thread",
+        values.scope_id ?? "444444444444444444",
+        values.slug ?? "github-link",
+        values.last_published_run_key ?? RUN_KEY,
+        values.file_count ?? 0,
+        values.total_bytes ?? 0,
+      )
+      .run();
+
+  const seed = async (): Promise<void> => {
+    await insertProject({});
+    for (const runKey of [RUN_KEY, OTHER_RUN_KEY]) {
+      await env.DB.prepare(
+        `INSERT INTO runs (run_key, project_id, prompt, requester_discord_user_id, channel_id, status)
+         VALUES (?, 'p1', 'ping', '111111111111111111', '111111111111111111', 'running')`,
+      )
+        .bind(runKey)
+        .run();
+    }
+  };
+
+  it("素直な形は入る", async () => {
+    await seed();
+    await expect(insertPlan({})).resolves.toBeDefined();
+  });
+
+  /*
+    **`plan_id` は URL に載る**ので、形が崩れた値を保存させない
+    （テーブル定義書 §4-7）。`GLOB '[0-9a-f]*'` では先頭 1 文字しか見ないので、
+    否定クラスと長さの対で書いてある。
+  */
+  it.each([
+    ["大文字", "0123456789ABCDEF0123456789abcdef"],
+    ["31 桁", "0".repeat(31)],
+    ["33 桁", "0".repeat(33)],
+    ["16 進でない", `${"0".repeat(31)}z`],
+    ["空", ""],
+  ])("plan_id が %s なら入らない", async (_label, plan_id) => {
+    await seed();
+    await expect(insertPlan({ plan_id })).rejects.toThrow();
+  });
+
+  it.each(["session", "run_key", "", "Thread"])(
+    "scope_kind が %s なら入らない",
+    async (scope_kind) => {
+      await seed();
+      await expect(insertPlan({ scope_kind })).rejects.toThrow();
+    },
+  );
+
+  it("scope_kind は thread と run が入る", async () => {
+    await seed();
+
+    await expect(insertPlan({ scope_kind: "thread" })).resolves.toBeDefined();
+    await expect(
+      insertPlan({
+        plan_id: "f".repeat(32),
+        scope_kind: "run",
+        scope_id: RUN_KEY,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("scope_id が空なら入らない", async () => {
+    await seed();
+    await expect(insertPlan({ scope_id: "" })).rejects.toThrow();
+  });
+
+  /*
+    **テーブル定義書 §4-7 から `/` を落とした**（§9 の未決 4 をここで閉じた）。
+    置く口が `PUT /plans/:slug/:path{.+}` なので、名前に `/` を許すと
+    **どこまでが名前でどこからがパスかを判別できない。**
+  */
+  it.each([
+    ["スラッシュ", "a/b"],
+    ["大文字", "GitHub"],
+    ["ドット", "a.b"],
+    ["先頭がハイフン", "-a"],
+    ["空", ""],
+    ["65 文字", "a".repeat(65)],
+    ["空白", "a b"],
+  ])("slug が %s なら入らない", async (_label, slug) => {
+    await seed();
+    await expect(insertPlan({ slug })).rejects.toThrow();
+  });
+
+  it.each(["a", "github-link", "phase_06", "a".repeat(64)])(
+    "slug が %s なら入る",
+    async (slug) => {
+      await seed();
+      await expect(insertPlan({ slug })).resolves.toBeDefined();
+    },
+  );
+
+  it.each([
+    ["file_count が負", { file_count: -1 }],
+    ["total_bytes が負", { total_bytes: -1 }],
+  ])("%s なら入らない", async (_label, values) => {
+    await seed();
+    await expect(insertPlan(values)).rejects.toThrow();
+  });
+
+  /*
+    **同じ場所の同じ名前は 1 つ**（要件 `I-6`・`F-E4`）。ここが UNIQUE でないと
+    「上書きのつもりが 2 本目」になり、Discord に貼ったリンクが古い版を指し続ける。
+  */
+  it("同じスレッドの同じ名前は 2 本入らない", async () => {
+    await seed();
+    await insertPlan({});
+
+    await expect(insertPlan({ plan_id: "f".repeat(32) })).rejects.toThrow();
+  });
+
+  it("スレッドが違えば同じ名前でも入る", async () => {
+    await seed();
+    await insertPlan({});
+
+    await expect(
+      insertPlan({ plan_id: "f".repeat(32), scope_id: "555555555555555555" }),
+    ).resolves.toBeDefined();
+  });
+
+  it("居ない run では置けない（FK）", async () => {
+    await seed();
+    await expect(
+      insertPlan({ last_published_run_key: "OFFDESK-aaaaaaaaaaaaaaaa" }),
+    ).rejects.toThrow();
+  });
+
+  /** FK は RESTRICT。**run を消して plans だけ残る形を作らない。** */
+  it("計画が残っている run は消せない", async () => {
+    await seed();
+    await insertPlan({});
+
+    await expect(
+      env.DB.prepare("DELETE FROM runs WHERE run_key = ?").bind(RUN_KEY).run(),
+    ).rejects.toThrow();
+  });
+
+  /*
+    **計画は消せる**（要件 `F-E9`）。offdesk で削除の経路を持つのはこの 1 表だけで、
+    子を持たないので消しても壊れるものがない（テーブル定義書 §3-4）。
+  */
+  it("計画は消せる", async () => {
+    await seed();
+    await insertPlan({});
+
+    await expect(
+      env.DB.prepare("DELETE FROM plans WHERE plan_id = ?").bind(PLAN_ID).run(),
+    ).resolves.toBeDefined();
+  });
+
+  it("名前で引くと plans_scope_slug_uidx を使う", async () => {
+    await seed();
+
+    const { results } = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT plan_id FROM plans WHERE scope_kind = ? AND scope_id = ? AND slug = ?`,
+    )
+      .bind("thread", "444444444444444444", "github-link")
+      .all();
+
+    expect(JSON.stringify(results)).toContain("plans_scope_slug_uidx");
+  });
+
+  it("一覧は plans_updated_idx を使う", async () => {
+    await seed();
+
+    const { results } = await env.DB.prepare(
+      "EXPLAIN QUERY PLAN SELECT * FROM plans ORDER BY updated_at DESC",
+    ).all();
+
+    expect(JSON.stringify(results)).toContain("plans_updated_idx");
+  });
+});

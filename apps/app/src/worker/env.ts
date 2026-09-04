@@ -16,17 +16,14 @@ export type WorkerEnv = {
   OFFDESK_TOKEN: string;
   FIRE_TOKEN_KEY: string;
 
+  PLAN_LINK_SIGNING_KEY: string;
+
   ASK_HOLD_MS?: string;
   ASK_POLL_MS?: string;
   ASK_PROGRESS_MS?: string;
   ASK_SILENT_HOLD_MS?: string;
   ASK_TOUCH_MS?: string;
 
-  /*
-    素の文の「生きている」の窓（要件 `F-C6`・P4）。**2 つ別に持つ。**
-    既定は `packages/domain/src/inbound.ts`（60 秒 と 6 時間）。
-    **`assertEnv` の一覧には入れない** —— 無ければ既定で動く。
-  */
   INBOUND_HELD_WINDOW_MS?: string;
   INBOUND_ACTIVE_WINDOW_MS?: string;
 
@@ -46,6 +43,7 @@ export const ENDPOINT_GATED_ENV_NAMES = [
   "OWNER_DISCORD_USER_ID",
   "OFFDESK_TOKEN",
   "FIRE_TOKEN_KEY",
+  "PLAN_LINK_SIGNING_KEY",
 ] as const satisfies readonly (keyof WorkerEnv)[];
 
 export type AppBindings = {

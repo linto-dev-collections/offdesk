@@ -25,7 +25,9 @@
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@workspace/ui": "workspace:*",
+    "github-slugger": "catalog:",
     "hono": "catalog:",
+    "marked": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -79,4 +79,4 @@ jobs:
           OWNER_DISCORD_USER_ID: ${{ vars.OWNER_DISCORD_USER_ID }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
           FIRE_TOKEN_KEY: ${{ secrets.FIRE_TOKEN_KEY }}
-          #   P6  PLAN_LINK_SIGNING_KEY
+          PLAN_LINK_SIGNING_KEY: ${{ secrets.PLAN_LINK_SIGNING_KEY }}

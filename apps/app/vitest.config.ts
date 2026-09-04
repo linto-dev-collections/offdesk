@@ -27,6 +27,7 @@ export default defineConfig({
           OFFDESK_TOKEN: "test-offdesk-token-0123456789abcdef",
           // base64 の 32 バイト（AES-256）。テスト専用の固定値。
           FIRE_TOKEN_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+          PLAN_LINK_SIGNING_KEY: "test-plan-link-signing-key-0123456789",
 
           ASK_HOLD_MS: "300",
           ASK_POLL_MS: "5",

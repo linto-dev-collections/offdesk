@@ -89,7 +89,7 @@ export {
   resolveHoldConfig,
 } from "./hold.ts";
 export type { RandomBytes } from "./ids.ts";
-export { newAskId, newRunKey } from "./ids.ts";
+export { newAskId, newPlanId, newRunKey } from "./ids.ts";
 export type {
   InboundDecision,
   InboundMessage,
@@ -105,6 +105,18 @@ export {
   resolveInboundWindows,
 } from "./inbound.ts";
 export { isOwner } from "./owner.ts";
+export type { PlanScope, PlanScopeKind } from "./plan-path.ts";
+export {
+  entryPath,
+  isMarkdownPath,
+  isPlanSlug,
+  MAX_PLAN_FILE_BYTES,
+  MAX_PLAN_FILES,
+  MAX_PLAN_TOTAL_BYTES,
+  normalizePlanPath,
+  planContentType,
+  planScope,
+} from "./plan-path.ts";
 export type {
   ProjectQuery,
   ProjectRef,
@@ -115,6 +127,7 @@ export {
   buildFireText,
   isResendQuestion,
   MAX_FIRE_TEXT_LENGTH,
+  PUBLISH_PLAN_SCRIPT,
   RESEND_QUESTION,
   ROUTINE_PROMPT,
   SERVER_INSTRUCTIONS,

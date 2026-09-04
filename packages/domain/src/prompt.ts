@@ -5,21 +5,11 @@ export const MAX_FIRE_TEXT_LENGTH = 65_536;
 
 export const RESEND_QUESTION = "(再送)";
 
+export const PUBLISH_PLAN_SCRIPT = ".claude/scripts/publish-plan.sh";
+
 export const isResendQuestion = (question: unknown): boolean =>
   typeof question === "string" && question.trim() === RESEND_QUESTION;
 
-/**
- * `initialize` の応答に載せる本文（計画 P3a §3-4）。
- *
- * **これはコードと必ず対で維持される** —— クライアントが毎回受け取るので、
- * routine 側への貼り忘れで契約が壊れない。だから**版ごとに変わる仕組み**は
- * すべてこちらに書き、`ROUTINE_PROMPT`（人が貼る方）には版をまたいで
- * 変わらないことだけを書く。
- *
- * **握りが落ちたときの復帰手順がここの主役**（要件 `F-B3`）。落ちたとき Claude に
- * 届くのは `ask_id` を含まないエラーなので、**サーバー自身が「呼び直せばよい」と
- * 名乗る**しかない。
- */
 export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との唯一の口です。
 
 - \`run_key\` は指示の 1 行目にある \`OFFDESK-\` で始まる値をそのまま渡します。
@@ -65,6 +55,21 @@ export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との
 
 問いを出して待っている間に書かれた文は、そのまま**その問いへの回答**になります
 （ボタンを押すのと同じです）。
+
+## 長い文書は URL にして渡します
+
+実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
+リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`plans/<名前>/\` に書いてから
+
+    ${PUBLISH_PLAN_SCRIPT} <run_key> plans/<名前>
+
+を実行してください。**依頼者が読む URL を 1 行だけ返します。**
+その 1 行を \`ask_human\` の \`question\` に貼ってください。
+
+- **本文をツールの引数に載せないでください。** 計画は 200KB を超えるので、
+  そのまま再出力することになります。
+- **同じ名前で出し直せば同じ URL に上書きされます。** 貼り直しは要りません。
+- リンクには期限があります（7 日）。切れたら出し直してください。
 
 \`run_key\` が見つからないと言われたら、台帳にその run がありません。
 **ただし MCP の接続そのものは通っています**（このエラーはサーバーが返しています）。
@@ -130,11 +135,12 @@ offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` �
 PR の URL は \`ask_human\` の \`question\` に含めて依頼者へ伝えてください。
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-リポジトリに \`.claude/scripts/publish-plan.sh\` があれば、\`plans/<名前>/\` に書いてから
+リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`plans/<名前>/\` に書いてから
 
-    .claude/scripts/publish-plan.sh <run_key> plans/<名前>
+    ${PUBLISH_PLAN_SCRIPT} <run_key> plans/<名前>
 
 を実行し、**返ってきた URL の 1 行だけ**を \`ask_human\` の \`question\` に貼ってください。
 **本文をツールの引数に載せないでください**（計画は 200KB を超え、そのまま再出力することになります）。
+**計画は commit しないでください**（\`plans/\` は \`.gitignore\` に入っています）。
 スクリプトが無いリポジトリでは、要点だけを \`ask_human\` で伝えてください。
 `;

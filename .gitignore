@@ -16,9 +16,6 @@ dist
 .env.local
 .env*.local
 
-# offdesk 自身の plans/ は commit する（対象リポジトリ側の規約とは別物）。
-# ここに /plans/ を書かないのは意図であって漏れではない。
-
 # エディタ / OS
 .vscode/*
 !.vscode/extensions.json
@@ -26,11 +23,14 @@ dist
 .DS_Store
 *.log
 
-# plans
-plans
-
-# docs
-docs
+# 使い捨ての実装計画とドキュメント（正本は現行のコード）。
+#
+# 先頭の `/` を落とさない。
+# アンカー無しの `plans` はどの深さの同名ディレクトリにも当たる —— 2026-09-04 に実際に踏んだ:
+# `apps/app/src/worker/plans/`（P6 の実装）が丸ごと ignore され、knip が「marked と github-slugger が未使用」と言い出して初めて気付いた。
+# 対象リポジトリ側の規約も同じ形（計画 P6 §1）。
+/plans/
+/docs/
 
 # プロジェクト設定の正本（fire トークンが入る。projects.example.json が形）
 projects.json

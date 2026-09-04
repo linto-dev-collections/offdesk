@@ -15,6 +15,7 @@ import { beforeAll, beforeEach } from "vitest";
  */
 const TABLES_CHILD_FIRST = [
   // offdesk 所有（全部 RESTRICT なので、この並びが FK の向きの一覧になる）。
+  "plans",
   "inbox",
   "events",
   "asks",
@@ -42,6 +43,26 @@ beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
+/*
+  **R2 も空にする**（P6）。分離が D1 と同じくファイル単位なので、前のテストが
+  置いた計画のオブジェクトが残る —— 残ると `entryPath` が別のテストの
+  `README.md` を選び、**落ちる場所と原因がずれる。**
+*/
+const clearR2 = async (): Promise<void> => {
+  let cursor: string | undefined;
+
+  do {
+    const page = await env.PLANS.list(
+      cursor === undefined ? undefined : { cursor },
+    );
+    if (page.objects.length > 0) {
+      await env.PLANS.delete(page.objects.map((object) => object.key));
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor !== undefined);
+};
+
 beforeEach(async () => {
   await clearD1();
+  await clearR2();
 });

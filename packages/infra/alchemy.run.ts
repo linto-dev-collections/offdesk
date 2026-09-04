@@ -101,21 +101,14 @@ const PRODUCTION_REQUIRED_ENV_NAMES: readonly string[] = [
   "GOOGLE_CLIENT_SECRET",
 ];
 
-/*
-  **宣言はするが、未設定でもデプロイを止めない**（P2）。欠けたときに落ちるのは
-  それを使う入口だけ（`apps/app/src/worker/env.ts` の同名の配列に対応表がある）。
-
-  ここに並べてあるのは「渡し忘れると Discord 経路が黙って動かない」一覧としての価値
-  のため。**`env-required` テストが `.env.example` と `ci.yml` との食い違いを見張る。**
-*/
 const ENDPOINT_GATED_ENV_NAMES: readonly string[] = [
-  // P2（Discord と起動）
   "DISCORD_BOT_TOKEN",
   "DISCORD_PUBLIC_KEY",
   "DISCORD_APPLICATION_ID",
   "OWNER_DISCORD_USER_ID",
   "OFFDESK_TOKEN",
   "FIRE_TOKEN_KEY",
+  "PLAN_LINK_SIGNING_KEY",
 ];
 
 // Worker 側の `assertEnv` は「動いてから」の検査なので、デプロイそのものは防げない。
@@ -197,7 +190,9 @@ const db = await D1Database("db", {
  * 実装計画の本文（要件 F-H）。
  *
  * `devDomain: false` は r2.dev 経由の公開を切るもの。既定も false だが、
- * **「付け忘れ」と「意図して付けない」を区別できるように書く**（閲覧はログイン必須）。
+ * **「付け忘れ」と「意図して付けない」を区別できるように書く** —— 閲覧は
+ * Worker の `/p/<plan_id>/` だけを通し、そこで署名を検査する（P6 §7 の B 案）。
+ * バケットに直接の口が開いていると、その検査を回り込める。
  */
 const plans = await R2Bucket("plans", {
   locationHint: "apac",
@@ -282,6 +277,8 @@ export const web = await Vite("app", {
       OWNER_DISCORD_USER_ID: varOf("OWNER_DISCORD_USER_ID"),
       OFFDESK_TOKEN: secretOf("OFFDESK_TOKEN"),
       FIRE_TOKEN_KEY: secretOf("FIRE_TOKEN_KEY"),
+      // P6。計画リンクの署名鍵（`BETTER_AUTH_SECRET` とは別の値にする）。
+      PLAN_LINK_SIGNING_KEY: secretOf("PLAN_LINK_SIGNING_KEY"),
     }),
     ...(isProd ? {} : { LOCAL_DEV: "true" }),
   },

@@ -2,6 +2,7 @@ export { GatewayStatus, gatewayFatalHint } from "./gateway.ts";
 export { HealthOutput } from "./health.ts";
 export { HookContextInput, HookSessionEndInput } from "./hooks.ts";
 export { MeOutput } from "./me.ts";
+export { PlanRemoveInput, PlanRemoveOutput } from "./plan.ts";
 export {
   FIRE_URL_PREFIX,
   ProjectListOutput,

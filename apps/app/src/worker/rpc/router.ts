@@ -2,6 +2,7 @@ import { contract } from "@offdesk/contract";
 import { createDb, listProjectsWithMask } from "@offdesk/db";
 import { listProjectSummaries } from "@offdesk/usecase";
 import { implement, ORPCError } from "@orpc/server";
+import { removePlan } from "../plans/routes.ts";
 import type { RpcContext } from "./context.ts";
 
 const os = implement(contract).$context<RpcContext>();
@@ -17,6 +18,11 @@ export const router = os.router({
     name: context.session.user.name,
     imageUrl: context.session.user.image ?? null,
   })),
+  plans: {
+    remove: authed.plans.remove.handler(async ({ context, input }) => ({
+      removed: await removePlan(context.env, input.planId),
+    })),
+  },
   projects: {
     list: authed.projects.list.handler(async ({ context }) => {
       const db = createDb(context.env.DB);

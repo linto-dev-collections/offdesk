@@ -17,6 +17,11 @@ import { GATEWAY_PATH, gatewayFetch } from "./gateway/gateway.do.ts";
 import { handleHookContext } from "./hooks/context.ts";
 import { handleHookSessionEnd } from "./hooks/session-end.ts";
 import { handleMcp } from "./mcp/server.ts";
+import {
+  handlePlanFinish,
+  handlePlanUpload,
+  handlePlanView,
+} from "./plans/routes.ts";
 import { router } from "./rpc/router.ts";
 
 const app = new Hono<AppBindings>();
@@ -158,6 +163,72 @@ hooks.post("/context", (c) => handleHookContext(c.req.raw, c.env));
 hooks.post("/session-end", (c) => handleHookSessionEnd(c.req.raw, c.env));
 
 app.route("/hooks", hooks);
+
+/*
+  実装計画の配布（要件 `F-E1`〜`F-E9`・計画 P6）。
+
+  **置く口と読む口で守り方が違う。**
+
+  - 置く（`/plans/*`）… Bearer ＋ `X-Offdesk-Run`。叩くのは cloud session の中の
+    `publish-plan.sh` なので、hooks と同じ構え
+  - 読む（`/p/*`）… **署名付きの期限付きリンク**（`plans/link.ts`）。`V-1` の結果で
+    こちらに倒した（要件 §15 の未決 1）。判定は `handlePlanView` の中で行う ——
+    ミドルウェアに出すと、署名を台帳より先に見るという順序（脅威 17）が
+    2 か所に散る
+*/
+const plans = new Hono<AppBindings>();
+
+plans.use("*", async (c, next) => {
+  if (!bearerMatches(c.req.header("authorization"), c.env.OFFDESK_TOKEN)) {
+    console.warn("[plans] bearer mismatch", { path: c.req.path });
+    return c.text("unauthorized", 401);
+  }
+  await next();
+});
+
+/*
+  **`finish` を先に置く。** Hono は登録順に見るので、`:path{.+}` を先に置くと
+  `finish` という名前のファイルとして扱われる（拡張子が無いので 400 になり、
+  症状は「計画が仕上がらない」）。メソッドが違う（POST / PUT）ので実際には
+  衝突しないが、**順序に頼らない形にはできないので順序で守る。**
+*/
+plans.post("/:slug/finish", (c) =>
+  handlePlanFinish(c.req.raw, c.env, { slug: c.req.param("slug") }),
+);
+
+plans.put("/:slug/:path{.+}", (c) =>
+  handlePlanUpload(c.req.raw, c.env, {
+    slug: c.req.param("slug"),
+    path: c.req.param("path"),
+  }),
+);
+
+app.route("/plans", plans);
+
+/*
+  **`/p/<32hex>` は `/p/<32hex>/` へ 301。** 末尾のスラッシュが無いと
+  `./phase-01.md` が `/p/phase-01.md` に解決されて、計画の中の相対リンクが
+  全部死ぬ（計画 P6 §4-4）。**クエリを付け直すのを忘れない** ——
+  署名は `?t=` に載っているので、落とすとリダイレクト先で 401 になる。
+*/
+app.get("/p/:planId{[0-9a-f]{32}}", (c) => {
+  const url = new URL(c.req.url);
+  return c.redirect(`/p/${c.req.param("planId")}/${url.search}`, 301);
+});
+
+app.get("/p/:planId{[0-9a-f]{32}}/", (c) =>
+  handlePlanView(c.req.raw, c.env, {
+    planId: c.req.param("planId"),
+    path: "",
+  }),
+);
+
+app.get("/p/:planId{[0-9a-f]{32}}/:path{.+}", (c) =>
+  handlePlanView(c.req.raw, c.env, {
+    planId: c.req.param("planId"),
+    path: c.req.param("path"),
+  }),
+);
 
 app.post("/discord/interactions", async (c) => {
   const body = await c.req.text();
