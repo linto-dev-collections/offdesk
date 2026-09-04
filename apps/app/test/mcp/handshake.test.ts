@@ -83,7 +83,7 @@ describe("tools/list", () => {
     ]);
   });
 
-  it("ask_human の引数が run_key / question / options で、3 つとも必須", async () => {
+  it("ask_human の引数が run_key / question / options で、必須は前の 2 つ", async () => {
     const { body } = await mcpJson({
       jsonrpc: "2.0",
       id: 1,
@@ -107,12 +107,17 @@ describe("tools/list", () => {
       "question",
       "options",
     ]);
-    // **P3a では options も必須**（答える口がボタンだけなので、無いと誰も答えられない）。
-    expect(askHuman?.inputSchema.required).toEqual([
-      "run_key",
-      "question",
-      "options",
-    ]);
+    /*
+      **`options` は `required` に入れない**（P3b で外した）。
+
+      P3a では入れていたが、**それだと `(再送)` の呼び直しが表現できない** ——
+      あちらは `question` の 1 語だけで呼ぶ契約なので、スキーマが `options` を
+      要求するとクライアントが送れない形になる。
+
+      **「選択肢が無い問いを作らない」という判断は変えていない。** 場所が移っただけで、
+      `validateAsk` が**新しい問いを立てる経路だけ**で要求する（`ask.test.ts` が見る）。
+    */
+    expect(askHuman?.inputSchema.required).toEqual(["run_key", "question"]);
   });
 
   it("説明文に session_key と書かない", async () => {
@@ -208,24 +213,47 @@ describe("tools/call の知らないツール", () => {
     expect(body.result).toBeUndefined();
   });
 
+  /*
+    **3 つとも中身が入った**（P3b）。引数が足りないときは
+    「呼び方が正しいのに結果が出せない」なので `isError`（プロトコルのエラーにしない）。
+  */
+  it.each([
+    ["ask_wait", "ask_id"],
+    ["report", "run_key"],
+  ])("%s は引数が足りないと isError で返す", async (name) => {
+    const { body } = await mcpJson({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: {} },
+    });
+    const result = body.result as {
+      isError: boolean;
+      content: readonly { text: string }[];
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).not.toContain("まだ使えません");
+  });
+
   it.each(["ask_wait", "report"])(
-    "%s は「まだ使えません」を isError で返す",
+    "%s の説明が「まだ使えない」と言わない",
     async (name) => {
-      // 一覧には出すが中身は無い（P3b で入る）。**プロトコルのエラーにしない** ——
-      // 呼び方は正しいので、Claude には文面を読んで別の手を採ってほしい。
+      // P3a はここに「まだ使えない」と書いていた。**残すと Claude が呼ばなくなる。**
       const { body } = await mcpJson({
         jsonrpc: "2.0",
         id: 1,
-        method: "tools/call",
-        params: { name, arguments: {} },
+        method: "tools/list",
       });
-      const result = body.result as {
-        isError: boolean;
-        content: readonly { text: string }[];
-      };
+      const tools = (
+        body.result as {
+          tools: readonly { name: string; description: string }[];
+        }
+      ).tools;
 
-      expect(result.isError).toBe(true);
-      expect(result.content[0]?.text).toContain("まだ使えません");
+      expect(
+        tools.find((tool) => tool.name === name)?.description,
+      ).not.toContain("まだ使えない");
     },
   );
 });

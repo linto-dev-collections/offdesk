@@ -26,6 +26,8 @@ export type RunRecord = {
   readonly ccSessionUrl: string | null;
   /** 握りのハートビート（要件 `F-C5`）。**行の更新時刻ではない。** */
   readonly heldAt: number | null;
+  /** Claude 由来の信号（要件 `F-C6` の長い窓）。**握りの印ではない。** */
+  readonly activityAt: number | null;
   readonly finishedAt: number | null;
   readonly failureReason: string | null;
   readonly createdAt: number;
@@ -50,6 +52,7 @@ const RUN_COLUMNS = {
   ccSessionId: runs.ccSessionId,
   ccSessionUrl: runs.ccSessionUrl,
   heldAt: runs.heldAt,
+  activityAt: runs.activityAt,
   finishedAt: runs.finishedAt,
   failureReason: runs.failureReason,
   createdAt: runs.createdAt,
@@ -66,6 +69,7 @@ type RunRow = {
   ccSessionId: string | null;
   ccSessionUrl: string | null;
   heldAt: Date | null;
+  activityAt: Date | null;
   finishedAt: Date | null;
   failureReason: string | null;
   createdAt: Date;
@@ -86,6 +90,7 @@ const toRunRecord = (row: RunRow): RunRecord => ({
   ccSessionId: row.ccSessionId,
   ccSessionUrl: row.ccSessionUrl,
   heldAt: row.heldAt?.getTime() ?? null,
+  activityAt: row.activityAt?.getTime() ?? null,
   finishedAt: row.finishedAt?.getTime() ?? null,
   failureReason: row.failureReason,
   createdAt: row.createdAt.getTime(),
@@ -207,6 +212,25 @@ export const touchRunHeld = async (
   await db
     .update(runs)
     .set({ heldAt: new Date(nowMs) })
+    .where(eq(runs.runKey, runKey));
+};
+
+/**
+ * **Claude 由来の信号を最後に受けた時刻**（要件 `F-C6`・`F-D5`）。
+ *
+ * **`held_at` と混ぜない。** あちらは「握りが生きている」印（短い窓）で、
+ * こちらは「Claude が息をしている」印（長い窓・数時間）。`report` が更新するのは
+ * **こちらだけ** —— 混ぜると、死んだ問いへ回答を書き込むことになる
+ * （kanata が 1 本で兼用していて、CLAUDE.md に警告が書いてあった箇所）。
+ */
+export const touchRunActivity = async (
+  db: Db,
+  runKey: string,
+  nowMs: number,
+): Promise<void> => {
+  await db
+    .update(runs)
+    .set({ activityAt: new Date(nowMs) })
     .where(eq(runs.runKey, runKey));
 };
 

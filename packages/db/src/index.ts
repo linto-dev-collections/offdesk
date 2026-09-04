@@ -16,9 +16,16 @@ export {
   answerAskByButton,
   attachAskMessage,
   findAsk,
+  findLatestUndeliveredAsk,
   insertAsk,
   markAskDelivered,
 } from "./repositories/ask.ts";
+export type { EventKind, EventRecord } from "./repositories/event.ts";
+export {
+  attachEventMessage,
+  insertEvent,
+  listEvents,
+} from "./repositories/event.ts";
 export type {
   ProjectRecord,
   ProjectWithMaskRecord,
@@ -47,5 +54,6 @@ export {
   markRunResumed,
   markRunRunning,
   markRunWaiting,
+  touchRunActivity,
   touchRunHeld,
 } from "./repositories/run.ts";

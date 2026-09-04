@@ -73,6 +73,19 @@ export {
   ROUTINE_PROMPT,
   SERVER_INSTRUCTIONS,
 } from "./prompt.ts";
+export type {
+  ReportKind,
+  ReportProblem,
+  ReportValidation,
+  ValidReport,
+} from "./report.ts";
+export {
+  isReportProblem,
+  isStateChange,
+  MAX_REPORT_BODY_LENGTH,
+  REPORT_KINDS,
+  validateReport,
+} from "./report.ts";
 export {
   bearerMatches,
   constantTimeEqual,

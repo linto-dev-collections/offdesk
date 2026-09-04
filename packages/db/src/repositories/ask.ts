@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { asks } from "../schema/offdesk.ts";
 
@@ -113,6 +113,32 @@ export const findAsk = async (
     .select(ASK_COLUMNS)
     .from(asks)
     .where(eq(asks.askId, askId))
+    .limit(1);
+
+  return row === undefined ? null : toAskRecord(row);
+};
+
+/**
+ * **返せていない問いのうち、いちばん新しいもの**（要件 `F-B3`・計画 P3b §3-2）。
+ *
+ * 握りが落ちても失わせないための唯一の手掛かり。`ask_human` は「問いを立てる」の
+ * 前にこれを引き、あれば**出し直さずに拾い直す。**
+ *
+ * **古い方を拾わない。** 会話が先へ進んだ後に昔の答えが蘇る。
+ *
+ * **`WHERE delivered_at IS NULL` を `asks_undelivered_idx` の条件と揃えてある**
+ * （テーブル定義書 付録 A-3）。書き落とすと部分索引が選ばれず全表走査に落ちる ——
+ * 実測で `SEARCH asks USING INDEX asks_undelivered_idx (run_key=?)` を確認済み。
+ */
+export const findLatestUndeliveredAsk = async (
+  db: Db,
+  runKey: string,
+): Promise<AskRecord | null> => {
+  const [row] = await db
+    .select(ASK_COLUMNS)
+    .from(asks)
+    .where(and(eq(asks.runKey, runKey), isNull(asks.deliveredAt)))
+    .orderBy(desc(asks.createdAt))
     .limit(1);
 
   return row === undefined ? null : toAskRecord(row);

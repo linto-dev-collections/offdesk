@@ -374,3 +374,100 @@ describe("asks の CHECK", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("events の CHECK", () => {
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+
+  const insertEventRow = (values: Record<string, unknown>) =>
+    env.DB.prepare(
+      `INSERT INTO events (run_key, kind, body, discord_message_id)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind(
+        values.run_key ?? RUN_KEY,
+        values.kind ?? "progress",
+        values.body ?? "進めています",
+        values.discord_message_id ?? null,
+      )
+      .run();
+
+  const seed = async (): Promise<void> => {
+    await insertProject({});
+    await env.DB.prepare(
+      `INSERT INTO runs (run_key, project_id, prompt, requester_discord_user_id, channel_id)
+       VALUES (?, 'p1', 'ping', '111111111111111111', '111111111111111111')`,
+    )
+      .bind(RUN_KEY)
+      .run();
+  };
+
+  it.each([
+    ["知らない kind", { kind: "zombie" }],
+    ["大文字の kind", { kind: "PROGRESS" }],
+    ["空の kind", { kind: "" }],
+  ])("%s は入らない", async (_label, values) => {
+    await seed();
+    await expect(insertEventRow(values)).rejects.toThrow();
+  });
+
+  /** DDL の一覧は 5 種。**Claude が出せるのはそのうち 3 種**（`validateReport`）。 */
+  it.each(["progress", "done", "blocked", "stop_hook", "error"])(
+    "kind が %s なら入る",
+    async (kind) => {
+      await seed();
+      await expect(insertEventRow({ kind })).resolves.toBeDefined();
+    },
+  );
+
+  it("居ない run の event は入らない", async () => {
+    await seed();
+    await expect(
+      insertEventRow({ run_key: "OFFDESK-ffffffffffffffff" }),
+    ).rejects.toThrow();
+  });
+
+  /*
+    **`body` に長さの上限を置いていない**（テーブル定義書 §4-5）。
+    Discord の上限は `validateReport` が持ち、`stop_hook`（P5）と `error`（P8）は
+    offdesk 自身が書くので、DDL で縛ると内部の記録が落ちる。
+  */
+  it("空の body は入る（長さは DDL で縛らない）", async () => {
+    await seed();
+    await expect(insertEventRow({ body: "" })).resolves.toBeDefined();
+  });
+
+  /*
+    **id は消した行の番号を再利用しない**（`AUTOINCREMENT`）。
+    この表は run 詳細の時系列そのもので、**id の単調増加が「起きた順」を供給する**
+    （`events_run_id_idx`）。再利用されると、消した後の行が昔の位置に並ぶ。
+  */
+  it("行を消しても id が戻らない", async () => {
+    await seed();
+    await insertEventRow({ body: "1 本目" });
+    const first = await env.DB.prepare(
+      "SELECT MAX(id) AS id FROM events",
+    ).first<{
+      id: number;
+    }>();
+
+    await env.DB.prepare("DELETE FROM events").run();
+    await insertEventRow({ body: "2 本目" });
+    const second = await env.DB.prepare(
+      "SELECT MAX(id) AS id FROM events",
+    ).first<{
+      id: number;
+    }>();
+
+    expect(second?.id ?? 0).toBeGreaterThan(first?.id ?? 0);
+  });
+
+  /** FK は RESTRICT。**run を消して event だけ残る形を作らない。** */
+  it("event が残っている run は消せない", async () => {
+    await seed();
+    await insertEventRow({});
+
+    await expect(
+      env.DB.prepare("DELETE FROM runs WHERE run_key = ?").bind(RUN_KEY).run(),
+    ).rejects.toThrow();
+  });
+});

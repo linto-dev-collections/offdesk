@@ -188,3 +188,27 @@ export const askHumanCall = (input: {
       : { _meta: { progressToken: input.progressToken } }),
   },
 });
+
+/**
+ * **観測できる状態になるまで待つ**（時間ではなく条件で待つ）。
+ *
+ * 要件 `N-9` が禁じているのは「一定時間眠って、経った長さを前提に断言する」形。
+ * こちらは**条件が満たされた時点で進む**ので、速い機械でも遅い機械でも同じ結果になる
+ * （満たされなければ上限で落ちる ＝ 黙って緑にならない）。
+ *
+ * 握りは `waitUntil` の中で走るので、**`mcpCall` が返った時点では pump が
+ * `onOpen`（Discord への投稿）まで進んでいない。** 「投稿が済んでから接続を切る」を
+ * 順序で書くには、この口が要る。
+ */
+export const waitUntilTrue = async (
+  check: () => Promise<boolean>,
+  label: string,
+): Promise<void> => {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    if (await check()) return;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+  }
+  throw new Error(`条件が満たされませんでした: ${label}`);
+};

@@ -291,3 +291,33 @@ export const asks = sqliteTable(
     uniqueIndex("asks_message_uidx").on(t.messageId),
   ],
 );
+
+export const events = sqliteTable(
+  "events",
+  {
+    /*
+      **AUTOINCREMENT を明示する**（テーブル定義書 §4-5）。素の
+      `INTEGER PRIMARY KEY` は rowid の再利用を許すので、消した行の id が
+      後の行に付きうる —— この表は run 詳細の時系列そのものなので、
+      id の単調増加が「順序」を供給している（`events_run_id_idx` がそれを使う）。
+    */
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runKey: text("run_key")
+      .notNull()
+      .references(() => runs.runKey, {
+        onDelete: "restrict",
+        onUpdate: "restrict",
+      }),
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    discordMessageId: text("discord_message_id"),
+    createdAt,
+  },
+  (t) => [
+    check(
+      "events_kind_ck",
+      sql`${t.kind} IN ('progress', 'done', 'blocked', 'stop_hook', 'error')`,
+    ),
+    index("events_run_id_idx").on(t.runKey, t.id),
+  ],
+);

@@ -4,6 +4,8 @@ import {
   DISCORD_EMBED_DESCRIPTION_MAX,
   DISCORD_EMBED_FIELD_VALUE_MAX,
   DISCORD_MESSAGE_MAX,
+  isStateChange,
+  type ReportKind,
   truncate,
 } from "@offdesk/domain";
 import type { StartedAnnouncement } from "@offdesk/usecase";
@@ -108,5 +110,40 @@ export const askAnsweredMessage = (
     content: truncate(question, DISCORD_MESSAGE_MAX - tail.length) + tail,
     // **空配列を明示する。** 省略すると Discord は「変更なし」と解釈してボタンが残る。
     components: [],
+  };
+};
+
+/* ---- report（P3b・要件 `F-D1`） ---- */
+
+const COLOR_DONE = 0x57f287;
+const COLOR_BLOCKED = 0xed4245;
+
+/**
+ * **枠を付けてよいのは状態が変わったときだけ**（要件 `F-B5`）。
+ *
+ * `progress` は Claude 本人の発言なので地の文で出す。`done` / `blocked` は
+ * 「この run で何が起きたか」が変わった合図なので枠を付ける ——
+ * スレッドを流し読みしたときに、**枠だけを追えば状態の変化が拾える**のが狙い。
+ *
+ * 判定は `isStateChange`（`packages/domain/src/report.ts`）。**ここで
+ * `kind === "progress"` と書き直さない** —— 種を足したときに 2 か所がズレる。
+ */
+export const reportMessage = (
+  kind: ReportKind,
+  body: string,
+): MessagePayload => {
+  if (!isStateChange(kind)) {
+    return { content: truncate(body, DISCORD_MESSAGE_MAX) };
+  }
+
+  const done = kind === "done";
+  return {
+    embeds: [
+      {
+        color: done ? COLOR_DONE : COLOR_BLOCKED,
+        title: done ? "🏁 完了" : "⛔ 進めません",
+        description: truncate(body, DISCORD_EMBED_DESCRIPTION_MAX),
+      },
+    ],
   };
 };

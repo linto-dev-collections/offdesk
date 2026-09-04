@@ -213,33 +213,20 @@ describe("引数の検査", () => {
   });
 
   /*
-    **`(再送)` はまだ拾い直せない**（拾い直しは P3b）。素通りさせると
-    「(再送)」だけが書かれた選択肢無しのメッセージが Discord に出る。
+    **拾う問いが無いときの `(再送)` は握らない。**
+
+    P3b で拾い直しが入ったので、`(再送)` は「直前の問いを拾い直せ」の合図になった
+    （`pickup.test.ts` がその経路を見る）。**ただし拾うものが無ければ本物の問いが要る** ——
+    ここが素通りすると「(再送)」だけが書かれた選択肢無しのメッセージが Discord に出る。
   */
-  it("(再送) は握らずに理由を返す", async () => {
+  it("拾う問いが無ければ (再送) でも握らない", async () => {
     const runKey = await seedRun({ projectId });
 
-    const body = await notHeld({
-      runKey,
-      question: RESEND_QUESTION,
-      options: ["はい"],
-    });
+    const body = await notHeld({ runKey, question: RESEND_QUESTION });
 
     expect(isToolError(body)).toBe(true);
-    expect(toolText(body)).toContain("拾い直せません");
+    expect(toolText(body)).toContain("options が空");
     expect(await askRows()).toEqual([]);
-  });
-
-  it("(再送) の前後に空白があっても同じ扱い", async () => {
-    const runKey = await seedRun({ projectId });
-
-    const body = await notHeld({
-      runKey,
-      question: `  ${RESEND_QUESTION}  `,
-      options: ["はい"],
-    });
-
-    expect(toolText(body)).toContain("拾い直せません");
   });
 
   it("(再送) を含むだけの長い問いは通す（本物の問いを殺さない）", async () => {
