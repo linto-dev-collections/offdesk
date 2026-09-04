@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { NavItem } from "../../src/client/lib/nav.ts";
 import { NAV_ITEMS, navItemFor } from "../../src/client/lib/nav.ts";
 
 /*
@@ -7,11 +6,10 @@ import { NAV_ITEMS, navItemFor } from "../../src/client/lib/nav.ts";
 
   **完全一致だけだった実装を 2 段にした。** `/runs/$runKey` を開いたときに
   サイドバーの「run」が光らないと、いまどこを見ているか分からなくなる。
-*/
 
-const isPlanned = (
-  item: NavItem,
-): item is Extract<NavItem, { kind: "planned" }> => item.kind === "planned";
+  **P7b で `kind: "planned"` が消えた。** 5 画面すべてが実装済みになったので、
+  「押せない項目」の分岐を持たない（`lib/nav.ts` の why）。
+*/
 
 describe("navItemFor", () => {
   it("ダッシュボードは完全一致で当たる", () => {
@@ -27,6 +25,14 @@ describe("navItemFor", () => {
     expect(navItemFor("/runs/OFFDESK-1111111111111111")?.label).toBe("run");
   });
 
+  it.each([
+    ["/plans", "計画"],
+    ["/projects", "プロジェクト"],
+    ["/operations", "運用"],
+  ])("%s は %s に当たる（P7b の 3 画面）", (pathname, label) => {
+    expect(navItemFor(pathname)?.label).toBe(label);
+  });
+
   /*
     **`/` の前方一致を効かせない。** 効かせると全ページが
     「ダッシュボード」に当たって、光が動かなくなる。
@@ -40,10 +46,9 @@ describe("navItemFor", () => {
     expect(navItemFor("/runsomething")).toBeUndefined();
   });
 
-  it("未実装の項目には当たらない（to を持たない）", () => {
-    expect(navItemFor("/plans")).toBeUndefined();
-    expect(navItemFor("/projects")).toBeUndefined();
+  it("知らないパスには当たらない", () => {
     expect(navItemFor("/gateway")).toBeUndefined();
+    expect(navItemFor("/settings")).toBeUndefined();
   });
 
   /**
@@ -58,31 +63,34 @@ describe("navItemFor", () => {
 });
 
 describe("NAV_ITEMS", () => {
-  /** 要件 §5-6 の 5 画面。P7b が残り 3 つを live にする（§8 の引き渡し）。 */
+  /** 要件 §5-6 の 5 画面（run 一覧と run 詳細を 1 項目に数える）。 */
   it("5 項目が並んでいる", () => {
     expect(NAV_ITEMS).toHaveLength(5);
   });
 
-  it("P7a の 2 つが live になっている", () => {
-    const live = NAV_ITEMS.filter((item) => item.kind === "live");
-
-    expect(live.map((item) => item.label)).toEqual(["ダッシュボード", "run"]);
+  it("要件 §5-6 の順で並んでいる", () => {
+    expect(NAV_ITEMS.map((item) => item.label)).toEqual([
+      "ダッシュボード",
+      "run",
+      "計画",
+      "プロジェクト",
+      "運用",
+    ]);
   });
 
-  it("残りは planned で、フェーズの札を持つ", () => {
-    const planned = NAV_ITEMS.filter(isPlanned);
-
-    expect(planned).toHaveLength(3);
-    for (const item of planned) {
-      expect(item.phase).toBe("P7b");
+  /*
+    **全部に行き先がある**（P7b の完了条件「画面が 5 つ揃っている」）。
+    押せない項目が残っていたら、そのフェーズが終わっていない合図。
+  */
+  it("すべての項目に行き先がある", () => {
+    for (const item of NAV_ITEMS) {
+      expect(item.to.startsWith("/")).toBe(true);
     }
   });
 
   /** 同じ行き先を 2 つ持たない（`navItemFor` が「最初の 1 つ」を返すので）。 */
-  it("live の行き先が重複していない", () => {
-    const targets = NAV_ITEMS.filter((item) => item.kind === "live").map(
-      (item) => (item.kind === "live" ? item.to : ""),
-    );
+  it("行き先が重複していない", () => {
+    const targets = NAV_ITEMS.map((item) => item.to);
 
     expect(new Set(targets).size).toBe(targets.length);
   });

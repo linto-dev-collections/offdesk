@@ -1,10 +1,22 @@
 export { assertNever } from "./assert-never.ts";
+export { formatBytes } from "./bytes.ts";
 export { DashboardOutput, PendingAsk } from "./dashboard.ts";
-export { GatewayStatus, gatewayFatalHint } from "./gateway.ts";
+export {
+  GATEWAY_STATES,
+  GatewayState,
+  GatewayStatus,
+  gatewayFatalHint,
+} from "./gateway.ts";
 export { HealthOutput } from "./health.ts";
 export { HookContextInput, HookSessionEndInput } from "./hooks.ts";
 export { MeOutput } from "./me.ts";
-export { PlanRemoveInput, PlanRemoveOutput } from "./plan.ts";
+export {
+  PlanListOutput,
+  PlanRemoveInput,
+  PlanRemoveOutput,
+  PlanScopeKind,
+  PlanSummary,
+} from "./plan.ts";
 export {
   FIRE_URL_PREFIX,
   ProjectListOutput,

@@ -6,18 +6,25 @@ import {
   PlugSocketIcon,
 } from "@hugeicons/core-free-icons";
 
+/*
+  サイドバーの並び（要件 §5-6 の 5 画面・§10-4 の枠）。
+
+  **`kind: "planned"` を持たなくなった。** P7a では「まだ無い画面を押せない
+  `<span>` ＋ フェーズのバッジで並べる」形にしてあったが（要件 §10-4）、
+  P7b で 5 画面すべてが実装済みになったので**分岐そのものを消した** ——
+  1 つしか残らない判別子は、読む人に「もう 1 つの形がある」と誤解させる。
+  次に画面を増やすフェーズが来たら、その時点で戻す方が安い。
+*/
 export const NAV_GROUPS = [
   {
     label: "概要",
     items: [
       {
-        kind: "live",
         label: "ダッシュボード",
         icon: DashboardSquare01Icon,
         to: "/",
       },
       {
-        kind: "live",
         label: "run",
         icon: PlayIcon,
         to: "/runs",
@@ -28,34 +35,36 @@ export const NAV_GROUPS = [
     label: "資料",
     items: [
       {
-        kind: "planned",
         label: "計画",
         icon: BlueprintIcon,
-        phase: "P7b",
+        to: "/plans",
       },
       {
-        kind: "planned",
         label: "プロジェクト",
         icon: FolderLibraryIcon,
-        phase: "P7b",
+        to: "/projects",
       },
     ],
   },
+  /*
+    **入れ物の名前を「運用」から変えた。** 要件 §5-6 が画面の名前を「運用」と
+    定めているので項目名はそちらに合わせ、**同じ文字が 2 行続くのを避ける**
+    ために入れ物の名前をずらした（P7a では中身が「Gateway」だったので
+    重ならなかった）。
+  */
   {
-    label: "運用",
+    label: "システム",
     items: [
       {
-        kind: "planned",
-        label: "Gateway",
+        label: "運用",
         icon: PlugSocketIcon,
-        phase: "P7b",
+        to: "/operations",
       },
     ],
   },
 ] as const;
 
 export type NavItem = (typeof NAV_GROUPS)[number]["items"][number];
-type LiveNavItem = Extract<NavItem, { kind: "live" }>;
 
 /*
   **`flatMap<NavItem>` と型を明示する。** `as const` のタプルに対しては
@@ -66,10 +75,6 @@ type LiveNavItem = Extract<NavItem, { kind: "live" }>;
 */
 export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap<NavItem>(
   (group) => group.items,
-);
-
-const LIVE_ITEMS: readonly LiveNavItem[] = NAV_ITEMS.filter(
-  (item): item is LiveNavItem => item.kind === "live",
 );
 
 /**
@@ -84,7 +89,7 @@ const LIVE_ITEMS: readonly LiveNavItem[] = NAV_ITEMS.filter(
  * 当たらない。
  */
 export const navItemFor = (pathname: string): NavItem | undefined =>
-  LIVE_ITEMS.find((item) => item.to === pathname) ??
-  LIVE_ITEMS.find(
+  NAV_ITEMS.find((item) => item.to === pathname) ??
+  NAV_ITEMS.find(
     (item) => item.to !== "/" && pathname.startsWith(`${item.to}/`),
   );

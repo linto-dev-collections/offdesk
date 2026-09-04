@@ -83,6 +83,12 @@ export const ProjectSummary = z.object({
   id: z.string(),
   name: z.string(),
   discordChannelId: z.string(),
+  /**
+   * チャンネルを開くリンク（計画 P7b §3-2）。**`DISCORD_GUILD_ID` が
+   * 未設定なら `null`** —— `discordThreadUrl` と同じ扱いで、リンクが
+   * 出ないだけでどの入口も止まらない。
+   */
+  channelUrl: z.string().nullable(),
   repoUrl: z.string(),
   fireUrlHost: z.string(),
   fireTokenLast4: z.string().nullable(),

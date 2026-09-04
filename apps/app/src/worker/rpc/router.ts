@@ -7,6 +7,7 @@ import {
   listEvents,
   listInbox,
   listPendingAsks,
+  listPlans,
   listProjectsWithMask,
   listRuns,
   listRunsByStatus,
@@ -19,11 +20,13 @@ import {
   DASHBOARD_LIVE_STATUSES,
   getDashboard,
   getRunDetail,
+  listPlanSummaries,
   listProjectSummaries,
   listRunSummaries,
 } from "@offdesk/usecase";
 import { implement, ORPCError } from "@orpc/server";
 import type { WorkerEnv } from "../env.ts";
+import { readGatewayStatus, resetGateway } from "../gateway/client.ts";
 import { removePlan } from "../plans/routes.ts";
 import type { RpcContext } from "./context.ts";
 
@@ -80,7 +83,41 @@ export const router = os.router({
       };
     }),
   },
+  gateway: {
+    status: authed.gateway.status.handler(
+      async ({ context }) => (await readGatewayStatus(context.env)).body,
+    ),
+    /*
+      **サーバー側でも間隔を検査する**（脅威 15）。判定そのものは DO が持つ
+      （evict を挟んでもすり抜けないよう時刻を永続させてある）ので、
+      ここは 429 を oRPC のエラーへ translate するだけ ——
+      **画面の判定を信じる形にはしない。**
+    */
+    reset: authed.gateway.reset.handler(async ({ context, errors }) => {
+      const reply = await resetGateway(context.env);
+
+      if (reply.status === 429) {
+        throw errors.TOO_MANY_REQUESTS({ data: reply.body });
+      }
+
+      return reply.body;
+    }),
+  },
   plans: {
+    list: authed.plans.list.handler(async ({ context }) => {
+      const db = createDb(context.env.DB);
+
+      const items = await listPlanSummaries({
+        store: { list: (limit) => listPlans(db, limit) },
+        guildId: guildIdOf(context.env),
+      });
+
+      return { items: [...items] };
+    }),
+    /*
+      **`removed: false` はエラーにしない**（`PlanRemoveOutput` の why）。
+      一覧が古いだけなので、画面は引き直せばよい。
+    */
     remove: authed.plans.remove.handler(async ({ context, input }) => ({
       removed: await removePlan(context.env, input.planId),
     })),
@@ -89,7 +126,8 @@ export const router = os.router({
     list: authed.projects.list.handler(async ({ context }) => {
       const db = createDb(context.env.DB);
       const items = await listProjectSummaries({
-        listWithMask: () => listProjectsWithMask(db),
+        store: { listWithMask: () => listProjectsWithMask(db) },
+        guildId: guildIdOf(context.env),
       });
       return { items: [...items] };
     }),

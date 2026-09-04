@@ -11,6 +11,11 @@ import { call, publish, seedPublisher, storedPaths, view } from "./support.ts";
   **offdesk で消せるのはこれだけ。** run・ask・event・inbox・プロジェクトに
   削除の経路は持たない（要件 `N-4`）。`plans` は子を持たないので、消しても
   壊れるものがない（テーブル定義書 §3-4）。
+
+  **計画 P7b §5 の `rpc/plans-remove.test.ts` はこのファイル。** 別に立てると
+  同じ口を 2 か所から叩くことになる —— 画面側（確認ダイアログを挟むこと・
+  `removed: false` を黙らせないこと）は
+  `test/client/confirm-dialog.test.tsx` が見る。
 */
 
 const remove = async (input: {

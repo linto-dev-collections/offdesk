@@ -825,11 +825,16 @@ describe("plans の CHECK と索引", () => {
     expect(JSON.stringify(results)).toContain("plans_scope_slug_uidx");
   });
 
+  /*
+    **管理画面の一覧が実際に投げる形で見る**（`listPlans`。P7b §3-1）。
+    `LIMIT` を付けても索引の選び方は変わらないが、**テストの SQL が
+    実装の SQL とずれていると、索引が効かなくなっても緑のまま**になる。
+  */
   it("一覧は plans_updated_idx を使う", async () => {
     await seed();
 
     const { results } = await env.DB.prepare(
-      "EXPLAIN QUERY PLAN SELECT * FROM plans ORDER BY updated_at DESC",
+      "EXPLAIN QUERY PLAN SELECT * FROM plans ORDER BY updated_at DESC LIMIT 200",
     ).all();
 
     expect(JSON.stringify(results)).toContain("plans_updated_idx");

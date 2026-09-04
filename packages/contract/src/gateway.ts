@@ -1,6 +1,24 @@
 import { z } from "zod";
 
 /**
+ * `packages/domain` の `GatewayState` の `kind` と同じ 5 つ。
+ *
+ * **1 本にできない。** あちらは遷移に要る値（期限・試行回数・セッション）を
+ * 抱えた合併型で、契約は「外へ出せるもの」だけを持つ ——
+ * 食い違うと `GatewayStatus.parse` が縁で落ちる（`/gateway/status` が 500）ので、
+ * `apps/app/test/release/gateway-hints.test.ts` が 2 つを突き合わせる。
+ */
+export const GATEWAY_STATES = [
+  "idle",
+  "connecting",
+  "live",
+  "backoff",
+  "fatal",
+] as const;
+export const GatewayState = z.enum(GATEWAY_STATES);
+export type GatewayState = z.infer<typeof GatewayState>;
+
+/**
  * Gateway の状態（要件 `F-I7`・計画 P4 §3-7）。
  *
  * **`GET /gateway/status`（Bearer）と P7b の運用画面（oRPC）が同じ形を出す。**
@@ -12,7 +30,7 @@ import { z } from "zod";
  * 足したくなる場所なので、スキーマの側で「持てるもの」を閉じておく。
  */
 export const GatewayStatus = z.object({
-  state: z.enum(["idle", "connecting", "live", "backoff", "fatal"]),
+  state: GatewayState,
   /** 「素の文がいま届くか」。**`state === "live"` とは一致しない**（無音の深さも見る）。 */
   healthy: z.boolean(),
   /** `close_4014` のような鍵。**文言ではなく鍵**（下の `gatewayFatalHint` が引く）。 */

@@ -51,6 +51,7 @@ export {
   deletePlan,
   findPlan,
   finishPlan,
+  listPlans,
   upsertPlan,
 } from "./repositories/plan.ts";
 export type {

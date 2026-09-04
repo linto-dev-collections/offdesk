@@ -12,6 +12,9 @@ import { Route as rootRouteImport } from "./routes/__root";
 import { Route as AuthedRouteImport } from "./routes/_authed";
 import { Route as LoginRouteImport } from "./routes/login";
 import { Route as AuthedIndexRouteImport } from "./routes/_authed/index";
+import { Route as AuthedOperationsRouteImport } from "./routes/_authed/operations";
+import { Route as AuthedPlansRouteImport } from "./routes/_authed/plans";
+import { Route as AuthedProjectsRouteImport } from "./routes/_authed/projects";
 import { Route as AuthedRunsIndexRouteImport } from "./routes/_authed/runs/index";
 import { Route as AuthedRunsRunKeyRouteImport } from "./routes/_authed/runs/$runKey";
 
@@ -29,6 +32,21 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
   path: "/",
   getParentRoute: () => AuthedRoute,
 } as any);
+const AuthedOperationsRoute = AuthedOperationsRouteImport.update({
+  id: "/operations",
+  path: "/operations",
+  getParentRoute: () => AuthedRoute,
+} as any);
+const AuthedPlansRoute = AuthedPlansRouteImport.update({
+  id: "/plans",
+  path: "/plans",
+  getParentRoute: () => AuthedRoute,
+} as any);
+const AuthedProjectsRoute = AuthedProjectsRouteImport.update({
+  id: "/projects",
+  path: "/projects",
+  getParentRoute: () => AuthedRoute,
+} as any);
 const AuthedRunsIndexRoute = AuthedRunsIndexRouteImport.update({
   id: "/runs/",
   path: "/runs/",
@@ -43,11 +61,17 @@ const AuthedRunsRunKeyRoute = AuthedRunsRunKeyRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof AuthedIndexRoute;
   "/login": typeof LoginRoute;
+  "/operations": typeof AuthedOperationsRoute;
+  "/plans": typeof AuthedPlansRoute;
+  "/projects": typeof AuthedProjectsRoute;
   "/runs/$runKey": typeof AuthedRunsRunKeyRoute;
   "/runs/": typeof AuthedRunsIndexRoute;
 }
 export interface FileRoutesByTo {
   "/login": typeof LoginRoute;
+  "/operations": typeof AuthedOperationsRoute;
+  "/plans": typeof AuthedPlansRoute;
+  "/projects": typeof AuthedProjectsRoute;
   "/": typeof AuthedIndexRoute;
   "/runs/$runKey": typeof AuthedRunsRunKeyRoute;
   "/runs": typeof AuthedRunsIndexRoute;
@@ -56,19 +80,39 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/_authed": typeof AuthedRouteWithChildren;
   "/login": typeof LoginRoute;
+  "/_authed/operations": typeof AuthedOperationsRoute;
+  "/_authed/plans": typeof AuthedPlansRoute;
+  "/_authed/projects": typeof AuthedProjectsRoute;
   "/_authed/": typeof AuthedIndexRoute;
   "/_authed/runs/$runKey": typeof AuthedRunsRunKeyRoute;
   "/_authed/runs/": typeof AuthedRunsIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/login" | "/runs/$runKey" | "/runs/";
+  fullPaths:
+    | "/"
+    | "/login"
+    | "/operations"
+    | "/plans"
+    | "/projects"
+    | "/runs/$runKey"
+    | "/runs/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/login" | "/" | "/runs/$runKey" | "/runs";
+  to:
+    | "/login"
+    | "/operations"
+    | "/plans"
+    | "/projects"
+    | "/"
+    | "/runs/$runKey"
+    | "/runs";
   id:
     | "__root__"
     | "/_authed"
     | "/login"
+    | "/_authed/operations"
+    | "/_authed/plans"
+    | "/_authed/projects"
     | "/_authed/"
     | "/_authed/runs/$runKey"
     | "/_authed/runs/";
@@ -102,6 +146,27 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AuthedIndexRouteImport;
       parentRoute: typeof AuthedRoute;
     };
+    "/_authed/operations": {
+      id: "/_authed/operations";
+      path: "/operations";
+      fullPath: "/operations";
+      preLoaderRoute: typeof AuthedOperationsRouteImport;
+      parentRoute: typeof AuthedRoute;
+    };
+    "/_authed/plans": {
+      id: "/_authed/plans";
+      path: "/plans";
+      fullPath: "/plans";
+      preLoaderRoute: typeof AuthedPlansRouteImport;
+      parentRoute: typeof AuthedRoute;
+    };
+    "/_authed/projects": {
+      id: "/_authed/projects";
+      path: "/projects";
+      fullPath: "/projects";
+      preLoaderRoute: typeof AuthedProjectsRouteImport;
+      parentRoute: typeof AuthedRoute;
+    };
     "/_authed/runs/": {
       id: "/_authed/runs/";
       path: "/runs";
@@ -120,12 +185,18 @@ declare module "@tanstack/react-router" {
 }
 
 interface AuthedRouteChildren {
+  AuthedOperationsRoute: typeof AuthedOperationsRoute;
+  AuthedPlansRoute: typeof AuthedPlansRoute;
+  AuthedProjectsRoute: typeof AuthedProjectsRoute;
   AuthedIndexRoute: typeof AuthedIndexRoute;
   AuthedRunsRunKeyRoute: typeof AuthedRunsRunKeyRoute;
   AuthedRunsIndexRoute: typeof AuthedRunsIndexRoute;
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedOperationsRoute: AuthedOperationsRoute,
+  AuthedPlansRoute: AuthedPlansRoute,
+  AuthedProjectsRoute: AuthedProjectsRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedRunsRunKeyRoute: AuthedRunsRunKeyRoute,
   AuthedRunsIndexRoute: AuthedRunsIndexRoute,

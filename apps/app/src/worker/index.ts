@@ -1,10 +1,5 @@
 import { createAuth } from "@offdesk/auth";
-import {
-  GatewayStatus,
-  gatewayFatalHint,
-  HealthOutput,
-  RPC_PREFIX,
-} from "@offdesk/contract";
+import { gatewayFatalHint, HealthOutput, RPC_PREFIX } from "@offdesk/contract";
 import { bearerMatches } from "@offdesk/domain";
 import { getHealth } from "@offdesk/usecase";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -13,7 +8,12 @@ import { admin } from "./admin/projects.ts";
 import { handleInteraction } from "./discord/interactions.ts";
 import { verifyDiscordSignature } from "./discord/verify.ts";
 import { type AppBindings, assertEnv, type WorkerEnv } from "./env.ts";
-import { GATEWAY_PATH, gatewayFetch } from "./gateway/gateway.do.ts";
+import {
+  ensureGateway,
+  type GatewayReply,
+  readGatewayStatus,
+  resetGateway,
+} from "./gateway/client.ts";
 import { handleHookContext } from "./hooks/context.ts";
 import { handleHookSessionEnd } from "./hooks/session-end.ts";
 import { handleMcp } from "./mcp/server.ts";
@@ -103,37 +103,34 @@ gateway.use("*", async (c, next) => {
 });
 
 /**
- * DO の応答を契約（`GatewayStatus`）に通してから返す。
- *
- * **`parse` を通すのが要点。** DO 側にデバッグ情報を足したとき、
- * スキーマに無い値は**ここで落ちる**（bot token に到達する値を出さない。脅威 15）。
+ * `curl` に返す形。**契約に通した状態 ＋ `hint` の 1 行。**
  *
  * `hint` は `fatal` のときの**直し方**（文言は `packages/contract`）。
  * `fatal` は人が直すまで戻らない状態なので、何をすればよいかが出ていないと詰む。
+ *
+ * **画面側（oRPC）はこれを通らない。** あちらは `gatewayFatalHint` を
+ * クライアントで引く —— 文言の出どころは同じ 1 か所なので、
+ * 応答に載せるかどうかは口ごとに決めてよい（載せると `GatewayStatus` の
+ * 出力検証に入らない値が 1 つ増える）。
  */
-const gatewayResponse = async (upstream: Response): Promise<Response> => {
-  const status = GatewayStatus.parse(await upstream.json());
-
-  return Response.json(
-    { ...status, hint: gatewayFatalHint(status.fatalReason) },
-    { status: upstream.status },
+const gatewayResponse = (reply: GatewayReply): Response =>
+  Response.json(
+    { ...reply.body, hint: gatewayFatalHint(reply.body.fatalReason) },
+    { status: reply.status },
   );
-};
 
 gateway.get("/status", async (c) =>
-  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.status)),
+  gatewayResponse(await readGatewayStatus(c.env)),
 );
 
-gateway.post("/reset", async (c) =>
-  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.reset, "POST")),
-);
+gateway.post("/reset", async (c) => gatewayResponse(await resetGateway(c.env)));
 
 /*
   **DO は自分では起動できない**（要件 `F-I2`）。alarm ごと evict された状態から
   戻す保険で、5 分 cron が叩く（P8）。**既に繋がっているなら何も起きない。**
 */
 gateway.post("/ensure", async (c) =>
-  gatewayResponse(await gatewayFetch(c.env, GATEWAY_PATH.ensure, "POST")),
+  gatewayResponse(await ensureGateway(c.env)),
 );
 
 app.route("/gateway", gateway);

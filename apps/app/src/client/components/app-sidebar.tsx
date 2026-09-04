@@ -10,7 +10,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -58,34 +57,18 @@ const Nav = () => {
     <SidebarGroup key={group.label}>
       <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
       <SidebarMenu>
-        {group.items.map((item) =>
-          item.kind === "live" ? (
-            <SidebarMenuItem key={item.label}>
-              <SidebarMenuButton
-                tooltip={item.label}
-                isActive={current === item}
-                render={<Link to={item.to} />}
-              >
-                <HugeiconsIcon icon={item.icon} strokeWidth={2} />
-                <span>{item.label}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ) : (
-            <SidebarMenuItem key={item.label}>
-              <SidebarMenuButton
-                tooltip={`${item.label}（${item.phase} で入ります）`}
-                render={<span />}
-                className="cursor-default opacity-60 hover:bg-transparent hover:text-sidebar-foreground"
-              >
-                <HugeiconsIcon icon={item.icon} strokeWidth={2} />
-                <span>{item.label}</span>
-              </SidebarMenuButton>
-              <SidebarMenuBadge className="text-muted-foreground">
-                {item.phase}
-              </SidebarMenuBadge>
-            </SidebarMenuItem>
-          ),
-        )}
+        {group.items.map((item) => (
+          <SidebarMenuItem key={item.label}>
+            <SidebarMenuButton
+              tooltip={item.label}
+              isActive={current === item}
+              render={<Link to={item.to} />}
+            >
+              <HugeiconsIcon icon={item.icon} strokeWidth={2} />
+              <span>{item.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
       </SidebarMenu>
     </SidebarGroup>
   ));

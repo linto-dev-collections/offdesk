@@ -1,7 +1,8 @@
 import { oc } from "@orpc/contract";
 import { DashboardOutput } from "./dashboard.ts";
+import { GatewayStatus } from "./gateway.ts";
 import { MeOutput } from "./me.ts";
-import { PlanRemoveInput, PlanRemoveOutput } from "./plan.ts";
+import { PlanListOutput, PlanRemoveInput, PlanRemoveOutput } from "./plan.ts";
 import { ProjectListOutput } from "./project.ts";
 import {
   RunDetailInput,
@@ -21,11 +22,21 @@ export const contract = {
   dashboard: {
     summary: oc.output(DashboardOutput),
   },
-  plans: {
+  gateway: {
+    status: oc.output(GatewayStatus),
     /*
-      **取り消しだけを口にする**（要件 `F-E9`）。一覧は P7b で足す ——
-      いま作ると、画面の要る形が決まる前に出力の形を固めることになる。
+      **状態を変える 2 つのうちの 1 つ**（もう 1 つは `plans.remove`。要件 `F-F4`）。
+
+      **429 を型で持つ**（脅威 15 の「60 秒に 1 回」）。`data` に状態を載せて
+      あるので、断られた画面はそのまま残り時間を出せる ——
+      載せないと、断られた直後に `status` をもう 1 回叩くことになる。
     */
+    reset: oc
+      .errors({ TOO_MANY_REQUESTS: { data: GatewayStatus } })
+      .output(GatewayStatus),
+  },
+  plans: {
+    list: oc.output(PlanListOutput),
     remove: oc.input(PlanRemoveInput).output(PlanRemoveOutput),
   },
   projects: {

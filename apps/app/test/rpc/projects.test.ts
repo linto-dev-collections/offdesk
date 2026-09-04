@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
+import type { ProjectSummary } from "@offdesk/contract";
 import { ProjectListOutput } from "@offdesk/contract";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import worker from "../../src/worker/index.ts";
 import { signIn, testIp } from "../auth/support.ts";
 import { CHANNEL_ALPHA, seedTwoProjects } from "../db/support.ts";
@@ -114,5 +115,48 @@ describe("POST /rpc/projects.list", () => {
       parsed.items.find((item) => item.name === "offdesk-test")
         ?.discordChannelId,
     ).toBe(CHANNEL_ALPHA);
+  });
+
+  /*
+    **チャンネルを開くリンク**（計画 P7b §3-2）。`DISCORD_GUILD_ID` から組むので、
+    未設定なら `null` —— テストの env には値が入っているので、組めた形を見る。
+  */
+  it("チャンネルのリンクが付く", async () => {
+    await seedTwoProjects();
+    const { headers } = await signIn();
+
+    const body = (await (await callList(headers)).json()) as { json: unknown };
+    const parsed = ProjectListOutput.parse(body.json);
+
+    expect(
+      parsed.items.find((item) => item.name === "offdesk-test")?.channelUrl,
+    ).toBe(
+      `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${CHANNEL_ALPHA}`,
+    );
+  });
+});
+
+/*
+  plans/security.md 脅威 3・要件 `I-1`。**型としても不可能にしてある**
+  （計画 P7b §5 の「実行時とコンパイル時の両方で固める」）。
+
+  上の実行時の検査は「いまの実装が出していない」ことしか言わない ——
+  こちらは**後から誤って足せない**ことを言う（`tsc` が落とす）。
+  `expectTypeOf` は実行時には何もしないので、見張っているのは
+  `pnpm check-types`（`tsconfig.test.json` がテストを include している）。
+*/
+describe("応答の型（コンパイル時）", () => {
+  it("暗号文と fire の資格情報が型に無い", () => {
+    expectTypeOf<ProjectSummary>().not.toHaveProperty("ciphertext");
+    expectTypeOf<ProjectSummary>().not.toHaveProperty("iv");
+    expectTypeOf<ProjectSummary>().not.toHaveProperty("keyVersion");
+    expectTypeOf<ProjectSummary>().not.toHaveProperty("fireUrl");
+    expectTypeOf<ProjectSummary>().not.toHaveProperty("fireToken");
+  });
+
+  /** 出るのはホストと末尾 4 文字だけ（どちらも型にある）。 */
+  it("ホストと last4 は型にある", () => {
+    expectTypeOf<ProjectSummary>().toHaveProperty("fireUrlHost");
+    expectTypeOf<ProjectSummary>().toHaveProperty("fireTokenLast4");
   });
 });

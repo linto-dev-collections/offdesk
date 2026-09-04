@@ -1,9 +1,10 @@
-import { hostOf } from "@offdesk/domain";
+import { discordChannelUrl, hostOf } from "@offdesk/domain";
 
 export type ProjectSummaryView = {
   readonly id: string;
   readonly name: string;
   readonly discordChannelId: string;
+  readonly channelUrl: string | null;
   readonly repoUrl: string;
   readonly fireUrlHost: string;
   readonly fireTokenLast4: string | null;
@@ -24,6 +25,11 @@ export type ProjectStoreReadPort = {
   >;
 };
 
+export type ListProjectsDeps = {
+  readonly store: ProjectStoreReadPort;
+  readonly guildId: string | null;
+};
+
 /**
  * 一覧（要件 `F-F3`・plans/security.md 脅威 3）。
  *
@@ -31,14 +37,18 @@ export type ProjectStoreReadPort = {
  * それ 1 つで（トークンがあれば）起動できる。
  */
 export const listProjectSummaries = async (
-  store: ProjectStoreReadPort,
+  deps: ListProjectsDeps,
 ): Promise<readonly ProjectSummaryView[]> => {
-  const rows = await store.listWithMask();
+  const rows = await deps.store.listWithMask();
 
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     discordChannelId: row.discordChannelId,
+    channelUrl: discordChannelUrl({
+      guildId: deps.guildId,
+      channelId: row.discordChannelId,
+    }),
     repoUrl: row.repoUrl,
     fireUrlHost: hostOf(row.fireUrl),
     fireTokenLast4: row.fireTokenLast4,

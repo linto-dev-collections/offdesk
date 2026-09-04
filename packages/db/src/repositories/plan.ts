@@ -1,5 +1,5 @@
 import type { PlanScopeKind } from "@offdesk/domain";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { plans } from "../schema/offdesk.ts";
 
@@ -127,6 +127,26 @@ export const findPlan = async (
     .limit(1);
 
   return row === undefined ? null : toPlanRecord(row);
+};
+
+/**
+ * 管理画面の一覧（計画 P7b §3-1）。**新しい順**（`plans_updated_idx`）。
+ *
+ * **上限を受け取る。** 計画は「スレッド × 名前」で 1 行なので数は増えにくいが、
+ * 上限が無いクエリを 1 本でも置くと、増えたときに気づく手段が無くなる
+ * （件数を決めるのは `packages/usecase`）。
+ */
+export const listPlans = async (
+  db: Db,
+  limit: number,
+): Promise<readonly PlanRecord[]> => {
+  const rows = await db
+    .select(PLAN_COLUMNS)
+    .from(plans)
+    .orderBy(desc(plans.updatedAt))
+    .limit(limit);
+
+  return rows.map(toPlanRecord);
 };
 
 export const deletePlan = async (db: Db, planId: string): Promise<boolean> => {
