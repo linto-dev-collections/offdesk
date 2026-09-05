@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -177,5 +178,81 @@ describe(".env.example に名前が並んでいる", () => {
     ]) {
       expect(workflow).toContain(`${name}:`);
     }
+  });
+});
+
+/*
+  **1 つ抜くとデプロイが止まる**（計画 P8 §2-2・受入基準 `A-12`）。
+
+  上の検査は「一覧が揃っているか」しか言わない。こちらは**実際に止まるか** ——
+  `alchemy.run.ts` を素の node で走らせて、必須の 3 つを空にしたときの
+  終了コードと出力を見る。
+
+  ## 安全に走らせるための 3 つ
+
+  - **リポジトリのルートから走らせる。** `config()` のパス（`../../.env.local`）が
+    リポジトリの外を指すので、**dotenv が 1 つも注がない**（実測: `injected env (0)`）
+    —— 手元と CI で同じ条件になる
+  - **Cloudflare の資格情報を空にする。** 検査が万一消えても、その先の
+    `alchemy()` が認証できずに止まる（**このテストが本番へ届かない**ための保険）
+  - **必須の値は空文字で渡す。** dotenv は既存の `process.env` を上書きしないが、
+    CI は `env:` で本物を渡してくるので、空を明示しないと「未設定」を作れない
+*/
+describe("必須が欠けたらデプロイが止まる（A-12）", () => {
+  const PRESENT_VALUE = "offdesk-probe-value-must-not-be-printed";
+
+  const runDeploy = (): {
+    readonly status: number;
+    readonly output: string;
+  } => {
+    const result = spawnSync("node", ["packages/infra/alchemy.run.ts"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        ALCHEMY_PASSWORD: PRESENT_VALUE,
+        ALCHEMY_STAGE: "prod",
+        ALCHEMY_DEPLOY: "1",
+        BETTER_AUTH_SECRET: PRESENT_VALUE,
+        AUTH_ALLOWED_EMAILS: "probe@example.com",
+        ...Object.fromEntries(workerNames.map((name) => [name, ""])),
+        CLOUDFLARE_API_TOKEN: "",
+        CLOUDFLARE_ACCOUNT_ID: "",
+        ALCHEMY_STATE_TOKEN: "",
+      },
+    });
+
+    return {
+      status: result.status ?? -1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  };
+
+  const deploy = runDeploy();
+
+  it("止まる（非ゼロで終わる）", () => {
+    expect(deploy.status).not.toBe(0);
+  });
+
+  /** **1 つ見つけて止めない。** 1 つずつ落とすと直しては落ちるを繰り返す。 */
+  it("欠けている名前が全部並ぶ", () => {
+    for (const name of workerNames) {
+      expect(deploy.output).toContain(name);
+    }
+    expect(deploy.output).toContain(`${workerNames.length} 個未設定`);
+  });
+
+  /** **値は出ない**（脅威 12）。設定してある値をエラーに混ぜない。 */
+  it("設定してある値を出さない", () => {
+    expect(deploy.output).not.toContain(PRESENT_VALUE);
+  });
+
+  /*
+    **空文字を「設定済み」と読まない。** `.env.example` を写したままの
+    `.env.local` は全キーが `""` なので、ここが緩いと**素通りして本番へ出る。**
+  */
+  it("空文字を未設定として扱うと明記している", () => {
+    expect(deploy.output).toContain("空文字は未設定");
   });
 });

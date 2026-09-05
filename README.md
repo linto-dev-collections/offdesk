@@ -3,6 +3,18 @@
 Claude Code をリモート（Discord）から操作するためのアプリケーション。
 Cloudflare Workers 1 本に静的アセットと Worker を載せ、D1 と R2 と Durable Object を 1 デプロイで扱う。
 
+## 地図
+
+| | |
+| --- | --- |
+| このファイル | 何をするアプリか・立ち上げ方・構成 |
+| [OPERATIONS.md](./OPERATIONS.md) | **運用手順。** 秘密の置き場・プロジェクトを増やす・Gateway が落ちた・困ったときに読む順 |
+| 各パッケージの why コメント | 設計の理由（**正本はコード**） |
+
+**`docs/` と `plans/` は commit されない**（`.gitignore`）。要件定義書・テーブル定義書・
+実装計画は**使い捨て**で、現行のコードが正本という決まりにしてある ——
+コードの外にある知識（claude.ai と Discord の設定）だけを `OPERATIONS.md` に残す。
+
 ## 手を動かす前に
 
 ```bash
@@ -26,6 +38,9 @@ Worker が要らない秘密をビルド成果物に出さない。
 | | |
 | --- | --- |
 | `pnpm dev` | ローカル開発（<http://localhost:5173>）。miniflare の D1 / R2 / DO を使う |
+| `pnpm projects:sync` | `projects.json` を本番へ投入（[OPERATIONS.md](./OPERATIONS.md) §1） |
+| `pnpm routine:prompt` | routine に貼るプロンプトを出す |
+| `pnpm commands:register` | Discord のスラッシュコマンドを登録 |
 | `pnpm build` | 全パッケージのビルド |
 | `pnpm deploy` | Cloudflare へデプロイ（**prod は CI から。手元から prod を出そうとすると止まる**） |
 | `pnpm destroy` | そのステージのリソースを削除（**prod の D1 と R2 は消えない**） |
@@ -78,6 +93,19 @@ packages/
 ```
 
 依存の向きは機械で強制しているので、破ると `pnpm depcruise` が落ちる。
+
+## 5 分ごとに動くもの
+
+`main` の cron（`*/5 * * * *`）が 2 つの仕事をする。
+
+| | |
+| --- | --- |
+| Gateway を起こす | DO は自分では起動できない。alarm ごと evict された状態から戻す。**`fatal` なら何もしない**（人が直すまで戻らない） |
+| `queued` を畳む | 起動が完了しないまま 10 分が過ぎた run を `failed` にする。**起こし直さない**（次の 1 行が新しい run を立てる） |
+
+cron の文字列は 3 か所（`scheduled/crons.ts` / `wrangler.jsonc` / `alchemy.run.ts`）
+にあり、食い違うと**何も起きない** —— `test/release/cron-consistency.test.ts` が
+突き合わせる。
 
 ## wrangler.jsonc と alchemy.run.ts の二重定義
 

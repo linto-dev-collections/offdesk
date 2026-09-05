@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProjectSyncInput } from "./project.ts";
+import { ProjectSyncInput } from "./project-sync.ts";
 
 /*
   投入の入口（plans/security.md 脅威 3 の 2 層目）。

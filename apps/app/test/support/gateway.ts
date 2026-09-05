@@ -1,5 +1,6 @@
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { GATEWAY_STORAGE } from "../../src/worker/gateway/gateway.do.ts";
 
 /*
   Gateway の DO をテストの前に空へ戻す。
@@ -44,5 +45,23 @@ export const resetGatewayDO = async (): Promise<void> => {
 
   // `evictDurableObject` は走っていない DO を渡すと reject する。
   // 直前の `runInDurableObject` が起こしてあるので、ここでは必ず走っている。
+  await evictDurableObject(stub);
+};
+
+/**
+ * `fatal` の状態を作る（要件 `F-I4`・計画 P8 §3-3 の 3-1）。
+ *
+ * **ソケットを張らずに `fatal` へ入る道はこれだけ。** 本物は close 4004 / 4014 で
+ * 落ちるが、そのソケットはテストから張れない（上の why）。DO は `fatal` を
+ * storage に永続させるので、**置いて evict すればコンストラクタが読み直す** ——
+ * 「evict を挟んでも `fatal` のまま」という設計そのものを使っている。
+ */
+export const makeGatewayFatal = async (reason: string): Promise<void> => {
+  const stub = stubOf();
+
+  await runInDurableObject(stub, async (_instance, state) => {
+    await state.storage.put(GATEWAY_STORAGE.fatalReason, reason);
+  });
+
   await evictDurableObject(stub);
 };

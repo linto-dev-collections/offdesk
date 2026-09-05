@@ -72,6 +72,18 @@ export type {
   StartedAnnouncement,
 } from "./ports.ts";
 export type {
+  SweepQueuedRunsDeps,
+  SweepQueuedRunsPort,
+  SweepQueuedRunsResult,
+} from "./sweep-queued-runs.ts";
+export {
+  QUEUED_SWEEP_AFTER_MS,
+  QUEUED_SWEEP_EVENT_BODY,
+  QUEUED_SWEEP_LIMIT,
+  QUEUED_SWEEP_REASON,
+  sweepQueuedRuns,
+} from "./sweep-queued-runs.ts";
+export type {
   FireTokenCipherPort,
   ProjectStoreWritePort,
   SyncProjectsApplied,

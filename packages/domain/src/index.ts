@@ -131,6 +131,7 @@ export {
   buildFireText,
   isResendQuestion,
   MAX_FIRE_TEXT_LENGTH,
+  PLAN_WORK_DIR,
   PUBLISH_PLAN_SCRIPT,
   RESEND_QUESTION,
   ROUTINE_PROMPT,

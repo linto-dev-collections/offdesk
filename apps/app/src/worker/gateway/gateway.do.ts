@@ -58,9 +58,20 @@ export const GATEWAY_PATH = {
  *
  * **セッション（`session_id` / `seq`）は永続させない。** あれは 1 接続の一時的な
  * 状態で（要件 §8-1）、evict を挟んだ resume はどうせ 4007 / op 9 で落ちる。
+ *
+ * **export しているのはテストのため。** `fatal` はソケットが 4004 / 4014 で
+ * 切られたときにしか作れず、**ソケットを張るテストは書けない**
+ * （`WebSocketPair` は DO の I/O 文脈を越えられない。2026-09-04 に実測）——
+ * cron が `fatal` を尊重すること（要件 `F-I4`）を見るには、storage に直接置いて
+ * evict するしかない。**鍵の文字列をテスト側に写さない**ためにここから渡す。
  */
-const FATAL_KEY = "fatalReason";
-const RESET_KEY = "resetAt";
+export const GATEWAY_STORAGE = {
+  fatalReason: "fatalReason",
+  resetAt: "resetAt",
+} as const;
+
+const FATAL_KEY = GATEWAY_STORAGE.fatalReason;
+const RESET_KEY = GATEWAY_STORAGE.resetAt;
 
 export class DiscordGatewayDO extends DurableObject<WorkerEnv> {
   #state: GatewayState = { kind: "idle" };

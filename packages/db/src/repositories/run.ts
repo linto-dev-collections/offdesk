@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { projects, runs } from "../schema/offdesk.ts";
 
@@ -190,6 +190,70 @@ export const markRunFailed = async (
       finishedAt: new Date(nowMs),
     })
     .where(eq(runs.runKey, runKey));
+};
+
+export type StaleQueuedRun = {
+  readonly runKey: string;
+  readonly createdAt: number;
+};
+
+/**
+ * 起動が完了しなかった run（要件 `F-I6`・計画 P8 §3-2）。
+ *
+ * **`created_at` で見る**（`updated_at` ではない）。`/offdesk` の続きは
+ * `waitUntil` の中で走って**応答から 30 秒**で切られるので、測りたいのは
+ * 「立ってからどれだけ経ったか」—— `updated_at` はどの UPDATE でも動くので、
+ * 途中まで進んだ行が永久に若返る。
+ *
+ * `runs_status_created_idx` は `(status, created_at)` なので、この形がそのまま乗る。
+ */
+export const listStaleQueuedRuns = async (
+  db: Db,
+  before: number,
+  limit: number,
+): Promise<readonly StaleQueuedRun[]> => {
+  const rows = await db
+    .select({ runKey: runs.runKey, createdAt: runs.createdAt })
+    .from(runs)
+    .where(and(eq(runs.status, "queued"), lt(runs.createdAt, new Date(before))))
+    .orderBy(asc(runs.createdAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    runKey: row.runKey,
+    createdAt: row.createdAt.getTime(),
+  }));
+};
+
+/**
+ * `queued` のままの run だけを畳む（要件 `F-I6`）。
+ *
+ * **`markRunFailed` を使い回さない。** あちらは条件無しの UPDATE で、
+ * 立てた直後に自分で畳む 2 か所（`session/launch.ts`・`discord/inbound.ts`）
+ * のためにある —— 掃除は**引いてから畳むまでに間がある**ので、その間に
+ * `waitUntil` が完了して `running` になった run を `failed` で塗り潰しうる。
+ * そうなると Claude が働いている run が終端になり、**次の 1 行が `restart` として
+ * 2 本目を立てる**（要件 `I-13` がいちばん避けたい壊れ方）。
+ *
+ * 返り値の `false` は「負けた」＝ その run は既に動き出していた。
+ */
+export const failQueuedRun = async (
+  db: Db,
+  runKey: string,
+  reason: string,
+  nowMs: number,
+): Promise<boolean> => {
+  const rows = await db
+    .update(runs)
+    .set({
+      status: "failed",
+      failureReason: reason,
+      finishedAt: new Date(nowMs),
+    })
+    .where(and(eq(runs.runKey, runKey), eq(runs.status, "queued")))
+    .returning({ runKey: runs.runKey });
+
+  return rows.length > 0;
 };
 
 /*

@@ -7,6 +7,21 @@ export const RESEND_QUESTION = "(再送)";
 
 export const PUBLISH_PLAN_SCRIPT = ".claude/scripts/publish-plan.sh";
 
+/**
+ * 計画を組み立てる作業領域（要件 `F-E1`）。
+ *
+ * **リポジトリの外に置く。** 以前は `plans/` に書かせていたが、それだと
+ * **対象リポジトリの `.gitignore` に `/plans/` を足してもらう**必要があった
+ * （足し忘れると使い捨ての計画が commit に混ざり、アンカーを落とすと
+ * `src/plans/` のような同名ディレクトリまで消える —— offdesk 自身が踏んだ）。
+ *
+ * 置き場を作業領域へ移すと、**対象リポジトリに要求するものが 1 つ減る。**
+ * `publish-plan.sh` は置き場を引数で受けるだけなので、スクリプトは変わらない。
+ *
+ * 正本は R2 に置いた方（`/p/<plan_id>/`）で、ここはそこへ送る前の下書き。
+ */
+export const PLAN_WORK_DIR = "/tmp/offdesk-plans";
+
 export const isResendQuestion = (question: unknown): boolean =>
   typeof question === "string" && question.trim() === RESEND_QUESTION;
 
@@ -59,9 +74,9 @@ export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との
 ## 長い文書は URL にして渡します
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`plans/<名前>/\` に書いてから
+リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
 
-    ${PUBLISH_PLAN_SCRIPT} <run_key> plans/<名前>
+    ${PUBLISH_PLAN_SCRIPT} <run_key> ${PLAN_WORK_DIR}/<名前>
 
 を実行してください。**依頼者が読む URL を 1 行だけ返します。**
 その 1 行を \`ask_human\` の \`question\` に貼ってください。
@@ -135,12 +150,12 @@ offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` �
 PR の URL は \`ask_human\` の \`question\` に含めて依頼者へ伝えてください。
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`plans/<名前>/\` に書いてから
+リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
 
-    ${PUBLISH_PLAN_SCRIPT} <run_key> plans/<名前>
+    ${PUBLISH_PLAN_SCRIPT} <run_key> ${PLAN_WORK_DIR}/<名前>
 
 を実行し、**返ってきた URL の 1 行だけ**を \`ask_human\` の \`question\` に貼ってください。
 **本文をツールの引数に載せないでください**（計画は 200KB を超え、そのまま再出力することになります）。
-**計画は commit しないでください**（\`plans/\` は \`.gitignore\` に入っています）。
+**リポジトリの中に計画を置かないでください** —— 上のパスは作業領域で、commit の対象になりません。
 スクリプトが無いリポジトリでは、要点だけを \`ask_human\` で伝えてください。
 `;

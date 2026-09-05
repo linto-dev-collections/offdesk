@@ -23,6 +23,9 @@ import {
   handlePlanView,
 } from "./plans/routes.ts";
 import { router } from "./rpc/router.ts";
+import { CRON_EVERY_5_MIN } from "./scheduled/crons.ts";
+import { ensureGatewayConnected } from "./scheduled/ensure-gateway.ts";
+import { sweepStaleQueuedRuns } from "./scheduled/sweep-queued-runs.ts";
 
 const app = new Hono<AppBindings>();
 
@@ -259,7 +262,41 @@ app.use(`${RPC_PREFIX}/*`, async (c, next) => {
   return matched ? c.newResponse(response.body, response) : next();
 });
 
-const scheduled: ExportedHandlerScheduledHandler<WorkerEnv> = () => {};
+/*
+  5 分ごとの 2 つの仕事（要件 `F-I2`・`F-I6`・計画 P8 §3-1）。
+
+  **`Promise.allSettled` を使う**（`all` ではない）。Gateway の起こし直しが
+  失敗しても掃除は走らせたい —— `all` にすると、片方の reject で
+  もう片方の結果を待たずに抜ける。
+
+  **`waitUntil` に載せる。** `scheduled` は返った時点で終わりとみなされるので、
+  待たずに抜けると書き込みの途中で切られる。
+*/
+const scheduled: ExportedHandlerScheduledHandler<WorkerEnv> = (
+  event,
+  env,
+  ctx,
+) => {
+  switch (event.cron) {
+    case CRON_EVERY_5_MIN:
+      ctx.waitUntil(
+        Promise.allSettled([
+          ensureGatewayConnected(env),
+          sweepStaleQueuedRuns(env),
+        ]),
+      );
+      return;
+
+    default:
+      /*
+        **どの分岐にも入らないのが最も分かりにくい壊れ方**なので、必ず声を上げる
+        （要件 `N-7`）。cron の文字列が 3 か所で食い違ったときにここへ来る ——
+        `release/cron-consistency.test.ts` がそれを先に止めるが、
+        **本番で 1 か所だけ手で書き換えられた場合**はここだけが気づける。
+      */
+      console.error("[cron] 知らない schedule です", { cron: event.cron });
+  }
+};
 
 export default {
   fetch: app.fetch,
