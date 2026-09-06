@@ -187,6 +187,40 @@ describe("RunTable", () => {
     expect(screen.queryByText("残量")).toBeNull();
   });
 
+  describe("長いプロンプト", () => {
+    const LONG = "あ".repeat(120);
+
+    it("列幅が中身で変わらない（table-fixed）", async () => {
+      await renderWithRouter(<RunTable items={[run()]} now={NOW} />);
+
+      expect(document.querySelector("table")?.className).toContain(
+        "table-fixed",
+      );
+    });
+
+    it("プロンプトのセルだけ折り返す", async () => {
+      await renderWithRouter(
+        <RunTable items={[run({ prompt: LONG })]} now={NOW} />,
+      );
+
+      const cell = screen.getByTitle(LONG).closest("td");
+      expect(cell?.className).toContain("whitespace-normal");
+    });
+
+    it("2 行で止め、全文は title に残す", async () => {
+      await renderWithRouter(
+        <RunTable
+          items={[run({ prompt: LONG, promptTruncated: true })]}
+          now={NOW}
+        />,
+      );
+
+      const link = screen.getByTitle(LONG);
+      expect(link.className).toContain("line-clamp-2");
+      expect(link.className).toContain("break-words");
+    });
+  });
+
   it("空なら空の表示になる（3 状態のうちの空）", async () => {
     await renderWithRouter(<RunTable items={[]} now={NOW} />);
 

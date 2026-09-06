@@ -74,73 +74,99 @@ export const RunTable = ({
     );
   }
 
+  /*
+    **`table-fixed` にする**（2026-09-06 に長いプロンプトで崩れて直した）。
+
+    2 つが重なっていた ——
+    `TableCell` の既定が `whitespace-nowrap` なのでプロンプトが折り返さず、
+    `max-w-md` は **auto layout の `<td>` には効かない**（CSS の仕様で表セルには
+    `max-width` が適用されない）。結果、プロンプト列の最小幅が 120 字ぶんになり、
+    **他の列が潰れて横に溢れた。**
+
+    固定レイアウトなら**列幅は中身で変わらない。** 幅を書いていない
+    プロンプト列が残りを取り、狭い画面では `Table` が持つ
+    `overflow-x-auto` で横スクロールに落ちる（潰さずに逃がす）。
+  */
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>状態</TableHead>
-            <TableHead>プロジェクト</TableHead>
-            <TableHead>プロンプト</TableHead>
-            <TableHead>使用量</TableHead>
-            <TableHead>開始</TableHead>
-            <TableHead>所要</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => (
-            <TableRow key={item.runKey}>
-              <TableCell>
-                <RunStatusBadge status={item.status} />
-              </TableCell>
-              <TableCell className="whitespace-nowrap">
+    <Table className="min-w-[64rem] table-fixed">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-24">状態</TableHead>
+          <TableHead className="w-40">プロジェクト</TableHead>
+          {/* 幅を書かない = 残りを全部取る */}
+          <TableHead>プロンプト</TableHead>
+          <TableHead className="w-56">使用量</TableHead>
+          <TableHead className="w-36">開始</TableHead>
+          <TableHead className="w-32">所要</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {items.map((item) => (
+          /* 行の高さが揃わないので、上端で揃える。 */
+          <TableRow key={item.runKey} className="[&>td]:align-top">
+            <TableCell>
+              <RunStatusBadge status={item.status} />
+            </TableCell>
+            <TableCell className="whitespace-nowrap">
+              {/* 固定幅なので、溢れる名前は切って全文を `title` に残す。 */}
+              <div className="truncate" title={item.projectName}>
                 {item.projectName}
-              </TableCell>
-              <TableCell className="max-w-md">
-                <Link
-                  to="/runs/$runKey"
-                  params={{ runKey: item.runKey }}
-                  className="underline underline-offset-2"
-                >
-                  {item.prompt}
-                  {item.promptTruncated ? "…" : ""}
-                </Link>
-                <div className="mt-1 flex items-center gap-3">
-                  <span className="text-muted-foreground text-xs tabular-nums">
-                    {item.runKey}
-                  </span>
+              </div>
+            </TableCell>
+            <TableCell className="whitespace-normal">
+              {/*
+                **2 行で止める。** 本文はサーバー側で 120 字に切ってあるが、
+                それでも 1 行には収まらない —— 行の高さが揃わないと表として
+                読めなくなるので、`title` に全文を残して見た目を揃える。
+                `break-words` は URL のような切れ目の無い語を折るため。
+              */}
+              <Link
+                to="/runs/$runKey"
+                params={{ runKey: item.runKey }}
+                title={item.prompt}
+                className="line-clamp-2 break-words underline underline-offset-2"
+              >
+                {item.prompt}
+                {item.promptTruncated ? "…" : ""}
+              </Link>
+              <div className="mt-1 flex items-center gap-3">
+                <span className="min-w-0 truncate text-muted-foreground text-xs tabular-nums">
+                  {item.runKey}
+                </span>
+                {/* run_key に押されてリンクが消えないようにする。 */}
+                <span className="shrink-0">
                   <ThreadLink url={item.threadUrl} />
-                </div>
-              </TableCell>
-              <TableCell>
-                <ContextBar
-                  percent={item.contextPercent}
-                  usedTokens={item.contextUsedTokens}
-                  windowTokens={item.contextWindowTokens}
-                  windowKnown={item.contextWindowKnown}
-                />
-              </TableCell>
-              <TableCell className="whitespace-nowrap">
-                <div className="text-xs">
-                  {formatRelativeJst(item.createdAt, now)}
-                </div>
-                <div className="text-muted-foreground text-xs tabular-nums">
-                  {formatJst(item.createdAt)}
-                </div>
-              </TableCell>
-              <TableCell className="whitespace-nowrap text-xs tabular-nums">
-                {/*
-                  **終わっていない run は経過時間を出す。** 「まだ動いている」の
-                  長さがいちばん見たい数字なので、空欄にしない。
-                */}
-                {item.finishedAt === null
-                  ? `${formatDuration(Math.max(now - item.createdAt, 0))}（継続中）`
-                  : formatDuration(item.finishedAt - item.createdAt)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+                </span>
+              </div>
+            </TableCell>
+            <TableCell>
+              <ContextBar
+                percent={item.contextPercent}
+                usedTokens={item.contextUsedTokens}
+                windowTokens={item.contextWindowTokens}
+                windowKnown={item.contextWindowKnown}
+              />
+            </TableCell>
+            <TableCell className="whitespace-nowrap">
+              <div className="text-xs">
+                {formatRelativeJst(item.createdAt, now)}
+              </div>
+              <div className="text-muted-foreground text-xs tabular-nums">
+                {formatJst(item.createdAt)}
+              </div>
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-xs tabular-nums">
+              {/*
+                **終わっていない run は経過時間を出す。** 「まだ動いている」の
+                長さがいちばん見たい数字なので、空欄にしない。
+              */}
+              {item.finishedAt === null
+                ? `${formatDuration(Math.max(now - item.createdAt, 0))}（継続中）`
+                : formatDuration(item.finishedAt - item.createdAt)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 };
