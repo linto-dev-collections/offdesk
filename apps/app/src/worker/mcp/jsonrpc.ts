@@ -11,6 +11,24 @@ export const PARSE_ERROR = -32700;
 export const METHOD_NOT_FOUND = -32601;
 export const INVALID_PARAMS = -32602;
 
+/**
+ * `UnsupportedProtocolVersionError`（MCP 仕様の予約域）。
+ *
+ * **`2026-07-28`（modern）のクライアントに版を選び直させるための 1 個。**
+ * 詳しくは `server.ts` の `unsupportedProtocolVersion`。
+ */
+export const UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+/**
+ * 要求が名乗っている版の在り処（`2026-07-28`）。
+ *
+ * modern のクライアントは**すべての要求**にこの `_meta` を載せ、同じ値を
+ * `MCP-Protocol-Version` ヘッダにも入れる。offdesk は legacy（`initialize` で
+ * 交渉する世代）しか話さないので、**読むのは「modern が来た」の判定のためだけ。**
+ */
+export const MODERN_PROTOCOL_VERSION_KEY =
+  "io.modelcontextprotocol/protocolVersion";
+
 const jsonHeaders = { "content-type": "application/json" } as const;
 
 export const rpcResult = (id: JsonRpcId, value: unknown): Response =>
@@ -22,13 +40,45 @@ export const rpcError = (
   id: JsonRpcId,
   code: number,
   message: string,
+  options: { readonly data?: unknown; readonly status?: number } = {},
 ): Response =>
   new Response(
-    JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }),
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code,
+        message,
+        ...(options.data === undefined ? {} : { data: options.data }),
+      },
+    }),
     {
+      status: options.status ?? 200,
       headers: jsonHeaders,
     },
   );
+
+/**
+ * その要求が **modern（`2026-07-28` 以降）の作法で来ているか**、来ているなら何版か。
+ *
+ * modern は「毎回の要求が版を名乗り、サーバーが 1 件ずつ受け入れるか断る」形で、
+ * `initialize` のハンドシェイクが無い。**ヘッダだけでは判定しない** ——
+ * legacy のクライアントも `2025-06-18` 以降は `MCP-Protocol-Version` を送るので、
+ * ヘッダを根拠にすると**いま通っている経路を落とす**。
+ * modern は `_meta` とヘッダの両方を必ず載せる（片方だけは仕様違反）ので、
+ * **`_meta` の側を根拠にする。**
+ */
+export const modernProtocolVersion = (
+  params: Record<string, unknown> | undefined,
+): string | null => {
+  const meta = params?._meta;
+  if (typeof meta !== "object" || meta === null) return null;
+
+  const version = (meta as Record<string, unknown>)[
+    MODERN_PROTOCOL_VERSION_KEY
+  ];
+  return typeof version === "string" && version !== "" ? version : null;
+};
 
 export const toolResultMessage = (
   id: JsonRpcId,

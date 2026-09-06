@@ -1,9 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   isPlanSlug,
   MAX_PLAN_FILE_BYTES,
+  PLAN_WORK_DIR,
   PUBLISH_PLAN_SCRIPT,
   ROUTINE_PROMPT,
   SERVER_INSTRUCTIONS,
@@ -214,6 +224,91 @@ describe("hook とは違って、失敗したら落とす", () => {
     ],
   ])("%s なら非ゼロで終わる", (_label, args, envOverrides) => {
     expect(runScript(args, envOverrides)).not.toBe(0);
+  });
+});
+
+describe("置けるのは作業領域の下だけ（プロンプトインジェクションの出口を塞ぐ）", () => {
+  /*
+    **プロンプトが「そこに書け」と言うだけでは足りない**（2026-09-06 に足した）。
+
+    このスクリプトはセッションの中で bash から呼べて、上げたものは
+    **ログイン無しで 7 日間読める署名付き URL**（要件 `F-E5`）になる。
+    引数が自由だと、リポジトリ・PR・fetch した Web から入った 1 行で
+    読めるファイルが何でも外へ出る口になる。**引数の側で閉じる。**
+  */
+  const workspace = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), "offdesk-plan-guard-"));
+    mkdirSync(path.join(root, "wd", "myplan"), { recursive: true });
+    writeFileSync(path.join(root, "wd", "myplan", "a.md"), "hi\n");
+    mkdirSync(path.join(root, "outside"), { recursive: true });
+    writeFileSync(path.join(root, "outside", "secret.txt"), "s\n");
+    symlinkSync(path.join(root, "outside"), path.join(root, "wd", "escape"));
+    return root;
+  };
+
+  const run = (
+    target: string,
+    workDir: string,
+  ): { readonly status: number; readonly stderr: string } => {
+    try {
+      execFileSync(
+        "bash",
+        [path.join(REPO_ROOT, SCRIPT_PATH), "OFFDESK-1111111111111111", target],
+        {
+          encoding: "utf8",
+          stdio: "pipe",
+          env: {
+            PATH: process.env.PATH ?? "",
+            OFFDESK_URL: "https://offdesk.invalid",
+            OFFDESK_TOKEN: "test-token",
+            PLAN_WORK_DIR: workDir,
+          },
+        },
+      );
+      return { status: 0, stderr: "" };
+    } catch (error) {
+      const failure = error as { status?: number; stderr?: string };
+      return { status: failure.status ?? 1, stderr: failure.stderr ?? "" };
+    }
+  };
+
+  it.each([
+    ["作業領域の外", "outside"],
+    ["作業領域の中から外を指す symlink", "wd/escape"],
+  ])("%s は置かせない", (_label, relative) => {
+    const root = workspace();
+    const verdict = run(path.join(root, relative), path.join(root, "wd"));
+
+    expect(verdict.status).not.toBe(0);
+    expect(verdict.stderr).toContain("plans must live under");
+  });
+
+  it("作業領域そのものが無ければ落ちる（黙って全部を通さない）", () => {
+    const root = workspace();
+    const verdict = run(path.join(root, "wd", "myplan"), path.join(root, "no"));
+
+    expect(verdict.status).not.toBe(0);
+    expect(verdict.stderr).toContain("work directory does not exist");
+  });
+
+  /*
+    **通る側も固める。** 検査だけ足して置けなくなっては意味がない。
+    宛先は解決できないので curl が落ちる（＝ 検査は抜けている）。
+  */
+  it.each([
+    ["ディレクトリ", "wd/myplan"],
+    ["1 ファイル", "wd/myplan/a.md"],
+  ])("作業領域の中の %s は検査を抜ける", (_label, relative) => {
+    const root = workspace();
+    const verdict = run(path.join(root, relative), path.join(root, "wd"));
+
+    expect(verdict.stderr).not.toContain("plans must live under");
+    expect(verdict.stderr).toContain("offdesk.invalid");
+  });
+
+  /** **既定値が `PLAN_WORK_DIR` と同じ**（プロンプトが案内する場所と対）。 */
+  it("スクリプトの既定が PLAN_WORK_DIR と一致する", () => {
+    expect(SCRIPT).toContain(`\${PLAN_WORK_DIR:-${PLAN_WORK_DIR}}`);
   });
 });
 

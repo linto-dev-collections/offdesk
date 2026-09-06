@@ -63,6 +63,101 @@ describe("initialize", () => {
   });
 });
 
+describe("modern（2026-07-28）の要求", () => {
+  const modern = (method: string, version: string): unknown => ({
+    jsonrpc: "2.0",
+    id: 3,
+    method,
+    params: {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": version,
+        "io.modelcontextprotocol/clientInfo": { name: "v2", version: "0.0.0" },
+      },
+    },
+  });
+
+  it.each(["server/discover", "tools/list", "initialize"])(
+    "%s が 400 ＋ -32022 で、話せる版を並べる",
+    async (method) => {
+      const { response, settle } = await mcpCall(modern(method, "2026-07-28"));
+      const body = (await response.json()) as Record<string, unknown>;
+      await settle();
+
+      expect(response.status).toBe(400);
+      expect(body).toMatchObject({
+        id: 3,
+        error: {
+          code: -32022,
+          data: {
+            supported: ["2025-11-25", "2025-06-18", "2025-03-26"],
+            requested: "2026-07-28",
+          },
+        },
+      });
+    },
+  );
+
+  it("server/discover は _meta が無くても -32022", async () => {
+    const { response, settle } = await mcpCall({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "server/discover",
+    });
+    const body = (await response.json()) as Record<string, unknown>;
+    await settle();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: { code: -32022 } });
+  });
+
+  it("名乗った版が話せるものなら普通に応える", async () => {
+    const { body } = await mcpJson(modern("ping", "2025-11-25"));
+
+    expect(body).toEqual({ jsonrpc: "2.0", id: 3, result: {} });
+  });
+
+  it("_meta が無ければ、知らないメソッドは今までどおり 200 ＋ -32601", async () => {
+    const { body, response } = await mcpJson({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "resources/list",
+    });
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ error: { code: -32601 } });
+  });
+});
+
+describe("Origin の検査（DNS リバインディング）", () => {
+  it("別オリジンからは 403", async () => {
+    const { response, settle } = await mcpCall(
+      { jsonrpc: "2.0", id: 1, method: "ping" },
+      { origin: "https://evil.example" },
+    );
+    await settle();
+
+    expect(response.status).toBe(403);
+  });
+
+  it("Origin が無ければ通る（機械の口の既定）", async () => {
+    const { body } = await mcpJson({ jsonrpc: "2.0", id: 1, method: "ping" });
+
+    expect(body.result).toEqual({});
+  });
+
+  /** **認証より先に落とす**ので、トークンが正しくても別オリジンなら 403。 */
+  it("正しい Bearer でも別オリジンなら 403", async () => {
+    const { response, settle } = await mcpCall(
+      { jsonrpc: "2.0", id: 1, method: "ping" },
+      { origin: "https://evil.example" },
+    );
+    await settle();
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain("token");
+  });
+});
+
 describe("tools/list", () => {
   it("3 つ返す（ask_wait と report は中身が無くても一覧に出す）", async () => {
     const { body } = await mcpJson({

@@ -17,6 +17,7 @@ const TEMPLATE = JSON.parse(readSource("plugin/plugins/offdesk/.mcp.json")) as {
       url: string;
       headers: Record<string, string>;
       timeout: number;
+      alwaysLoad: boolean;
     }
   >;
 };
@@ -64,6 +65,10 @@ describe("plugin の .mcp.json", () => {
       ASK_HOLD_MS,
     );
   });
+
+  it("alwaysLoad が true（tool search でツールが消えない）", () => {
+    expect(TEMPLATE.mcpServers[SERVER_NAME]?.alwaysLoad).toBe(true);
+  });
 });
 
 describe("サーバー名が 3 か所で揃っている", () => {
@@ -73,15 +78,6 @@ describe("サーバー名が 3 か所で揃っている", () => {
     expect(source).toContain(`name: "${SERVER_NAME}"`);
   });
 
-  /*
-    **ROUTINE_PROMPT はツールをフル名で名指ししない**（2026-09-05 に直した）。
-    接頭辞が経路で変わるため —— repo の `.mcp.json` 経由なら
-    `mcp__offdesk__ask_human`、プラグイン経由なら
-    `mcp__plugin_offdesk_offdesk__ask_human`（cloud session で実測）。
-
-    **フル名を書くと、片方の経路で「そんなツールは無い」になる。**
-    素の名前（`ask_human`）で案内し、接頭辞は一覧を見て決めさせる。
-  */
   it("ROUTINE_PROMPT が素の名前で 3 つのツールを案内する", async () => {
     const { OFFDESK_TOOLS, ROUTINE_PROMPT } = await import("@offdesk/domain");
 
@@ -93,12 +89,10 @@ describe("サーバー名が 3 か所で揃っている", () => {
   it("ROUTINE_PROMPT が接頭辞を固定していない", async () => {
     const { ROUTINE_PROMPT } = await import("@offdesk/domain");
 
-    /* 2 通りある事実として両方を挙げているのは可。**片方だけを命令形で書かない。** */
     expect(ROUTINE_PROMPT).toContain("mcp__plugin_offdesk_offdesk__ask_human");
     expect(ROUTINE_PROMPT).toContain("一覧に出ている名前");
   });
 
-  /** `OFFDESK_TOOLS` が実物のツール名と一致すること（`mcp/server.ts` の `TOOLS`）。 */
   it("OFFDESK_TOOLS が実装のツール名と一致する", async () => {
     const { OFFDESK_TOOLS } = await import("@offdesk/domain");
     const source = readSource("apps/app/src/worker/mcp/server.ts");
@@ -120,13 +114,6 @@ describe("/mcp が run_worker_first に入っている", () => {
 });
 
 describe("plugin の hooks.json", () => {
-  /*
-    **`permissions.allow` は持たない**（2026-09-06）。プラグインは権限を宣言できず、
-    そもそも claude.ai に `allowed_tools` の欄が無い（要件 §9-1）——
-    **routine で承認を出しているのは下の PreToolUse hook 1 本だけ**で、
-    それは cloud session で実測済み。allow の一覧を持つと
-    「効いていない設定が正しく見える」形になる。
-  */
   it("権限の宣言を持たない（承認は hook が出す）", () => {
     expect(SETTINGS).not.toHaveProperty("permissions");
   });
@@ -137,12 +124,6 @@ describe("plugin の hooks.json", () => {
     );
   });
 
-  /*
-    **`PreToolUse` の群は 1 つではない**（P5 が残量を通報する群を足した）ので、
-    承認を出す群を**中身で選ぶ** —— 位置で選ぶと、群を並べ替えたときに隣を
-    検査し始める（P3a §9-3 の錨の話と同じ）。群の構成そのものは
-    `hook-template.test.ts` が見張っている。
-  */
   it("フックの matcher が offdesk のツールだけを拾う", () => {
     const allowing = SETTINGS.hooks.PreToolUse.filter((entry) =>
       entry.hooks.some((hook) => hook.command.includes("permissionDecision")),

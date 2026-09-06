@@ -20,6 +20,9 @@ command -v jq >/dev/null 2>&1 || die "jq is not installed"
 base="${OFFDESK_URL%/}"
 max_file_bytes=1048576
 
+# The plan work directory (paired with PLAN_WORK_DIR in packages/domain/src/prompt.ts).
+plan_work_dir="${PLAN_WORK_DIR:-/tmp/offdesk-plans}"
+
 single=""
 if [ -d "$target" ]; then
   root="${target%/}"
@@ -31,6 +34,29 @@ elif [ -f "$target" ]; then
 else
   die "not found: $target"
 fi
+
+# Only publish from under the work directory.
+#
+# **A prompt that says "write it there" is not enough.** This script is callable
+# from bash inside the session, and whatever it uploads becomes a signed URL that
+# is readable for seven days without logging in. With a free-form argument, one
+# misread instruction -- or one line of prompt injection arriving through the
+# repository, a pull request, or a fetched page -- turns this into an exit for
+# any file the session can read.
+#
+# **Compare resolved paths** (pwd -P). /tmp is itself a symlink on some systems
+# (/private/tmp on darwin), and a symlink inside the work directory pointing
+# outside it would slip past a plain string comparison.
+work_real="$(cd "$plan_work_dir" 2>/dev/null && pwd -P || true)"
+[ -n "$work_real" ] || die "the plan work directory does not exist: ${plan_work_dir}"
+
+root_real="$(cd "$root" 2>/dev/null && pwd -P || true)"
+[ -n "$root_real" ] || die "not found: $target"
+
+case "${root_real}/" in
+  "${work_real}/"*) ;;
+  *) die "plans must live under ${plan_work_dir} (got ${target})" ;;
+esac
 
 slug="$(printf '%s' "$name" \
   | tr '[:upper:]' '[:lower:]' \

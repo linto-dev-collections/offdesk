@@ -350,12 +350,12 @@ describe("1 行の中身", () => {
     expect((await list()).body.items[0]?.contextPercent).toBe(25);
   });
 
-  /** `claude-opus-5` は 1M。50k なら 5%。 */
+  /** `claude-sonnet-5` は native で 1M。50k なら 5%。 */
   it("モデルが分かればその窓を分母にする", async () => {
     await seedRun({
       runKey: runKeyOf(1),
       projectId: alpha,
-      ctx: { usedTokens: 50_000, at: Date.now(), model: "claude-opus-5" },
+      ctx: { usedTokens: 50_000, at: Date.now(), model: "claude-sonnet-5" },
     });
 
     expect((await list()).body.items[0]?.contextPercent).toBe(5);

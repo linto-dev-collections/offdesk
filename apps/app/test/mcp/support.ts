@@ -34,12 +34,15 @@ export const mcpCall = async (
     readonly method?: string;
     /** JSON にならない本文を送る（`-32700` の経路）。 */
     readonly rawBody?: string;
+    /** ブラウザから来たことにする（`Origin` の検査）。**付けないのが既定。** */
+    readonly origin?: string;
   } = {},
 ): Promise<McpCall> => {
   const headers = new Headers({
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
   });
+  if (overrides.origin !== undefined) headers.set("origin", overrides.origin);
 
   const authorization =
     overrides.authorization === undefined

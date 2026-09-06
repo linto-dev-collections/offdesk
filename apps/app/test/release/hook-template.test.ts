@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { newRunKey, OFFDESK_TOOL_MATCHER } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
@@ -79,6 +86,16 @@ describe("読む行を絞っている", () => {
   it("転写ログを後ろから読む", () => {
     expect(SCRIPT).toContain("tac");
     expect(SCRIPT).toContain("tail -r");
+  });
+
+  /*
+    **末尾だけを反転する**（2026-09-06）。この hook は `PreToolUse` ——
+    ツール呼び出しのたびに走り、転写ログは長いセッションで数 MB〜数十 MB になる。
+    全体を `tac` に流すと、その CPU と I/O が**全ツール呼び出しに乗る。**
+  */
+  it("反転する前に tail で行数を絞っている", () => {
+    expect(SCRIPT).toMatch(/tail -n "\$TAIL_LINES" "\$1" \| tac/);
+    expect(SCRIPT).toMatch(/TAIL_LINES=[0-9]+/);
   });
 
   it("agent_id があれば何もしない", () => {
@@ -219,6 +236,111 @@ describe("必ず exit 0 する", () => {
     expect(
       runHook('{"hook_event_name":"Stop","transcript_path":"/nope"}').stdout,
     ).toBe("");
+  });
+});
+
+/*
+  **通報の中身を実際に見る。** 上の検査はスクリプトの文字列を見ているだけで、
+  「末尾を絞った結果、拾う行がずれた」を捕まえられない ——
+  `curl` を差し替えて、**送る本文そのもの**を読む。
+*/
+describe("拾うのは直近の usage 行（末尾を絞っても変わらない）", () => {
+  const usageLine = (model: string, inputTokens: number): string =>
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        model,
+        usage: {
+          input_tokens: inputTokens,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 1,
+        },
+      },
+    });
+
+  /** 転写ログと、`curl` を差し替えた PATH を作る。 */
+  const stage = (
+    lines: readonly string[],
+  ): {
+    readonly transcript: string;
+    readonly pathEnv: string;
+    readonly body: string;
+  } => {
+    const root = mkdtempSync(path.join(tmpdir(), "offdesk-hook-tail-"));
+    const transcript = path.join(root, "transcript.jsonl");
+    writeFileSync(transcript, `${lines.join("\n")}\n`);
+
+    const body = path.join(root, "body.json");
+    const bin = path.join(root, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      path.join(bin, "curl"),
+      `#!/bin/sh\ncat > ${JSON.stringify(body)}\n`,
+      { mode: 0o755 },
+    );
+
+    return { transcript, pathEnv: `${bin}:${process.env.PATH ?? ""}`, body };
+  };
+
+  const RUN_KEY = "OFFDESK-0123456789abcdef";
+  const filler = (count: number): readonly string[] =>
+    Array.from({ length: count }, () => JSON.stringify({ type: "user" }));
+
+  it("古い行が何千あっても、いちばん新しい usage を送る", () => {
+    const staged = stage([
+      JSON.stringify({ type: "user", text: RUN_KEY }),
+      usageLine("claude-opus-5", 1),
+      ...filler(3_000),
+      usageLine("claude-opus-5", 999),
+      ...filler(10),
+    ]);
+
+    const verdict = runHook(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        transcript_path: staged.transcript,
+      }),
+      { PATH: staged.pathEnv },
+    );
+
+    expect(verdict.status).toBe(0);
+    expect(JSON.parse(readFileSync(staged.body, "utf8"))).toEqual({
+      run_key: RUN_KEY,
+      event: "PreToolUse",
+      model: "claude-opus-5",
+      usage: {
+        input_tokens: 999,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 1,
+      },
+    });
+  });
+
+  /*
+    **絞った窓の外にしか usage が無ければ、その 1 回は通報しない。**
+    これは意図した取引で、痛くない側に倒れている —— hook は次のツール呼び出しでも
+    走るし、残量は**出ないだけ**（嘘の値は出ない。要件 `F-D4`）。
+    窓（`TAIL_LINES`）は assistant の行が数行おきに来る前提より十分広い。
+  */
+  it("窓の外にしか usage が無ければ、黙って何も送らない", () => {
+    const staged = stage([
+      JSON.stringify({ type: "user", text: RUN_KEY }),
+      usageLine("claude-opus-5", 42),
+      ...filler(5_000),
+    ]);
+
+    const verdict = runHook(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        transcript_path: staged.transcript,
+      }),
+      { PATH: staged.pathEnv },
+    );
+
+    expect(verdict.status).toBe(0);
+    expect(existsSync(staged.body)).toBe(false);
   });
 });
 

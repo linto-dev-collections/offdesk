@@ -11,7 +11,7 @@ In the cloud environment's **Setup script** field:
 
 ```bash
 #!/bin/bash
-# rev: 1   <- bump after changing the plugin, so the cached environment is rebuilt
+# rev: 2   <- bump after changing the plugin, so the cached environment is rebuilt
 set -u
 for home in /home/user /root; do
   [ -d "$home" ] || continue

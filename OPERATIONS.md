@@ -102,6 +102,7 @@ wrangler d1 execute offdesk-db-prod --remote --profile <profile> --command \
 | 環境変数 | `OFFDESK_TOKEN` = Worker の secret と同じ値 | 全部 401 |
 | 環境変数 | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0` | 質問の直後に Claude が勝手に先へ進む |
 | 環境変数 | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=3600000` | **5 分ちょうどで握りが落ちる** |
+| 環境変数 | `CLAUDE_CODE_EFFORT_LEVEL=xhigh` | **止まらない**（モデルの既定 `high` で走るだけ）。この表で唯一「無くても壊れない」行 |
 
 Custom のネットワークにするときは「**Also include default list of common package managers**」にチェックを入れる（外すと `raw.githubusercontent.com` が塞がり、
 下の setup script が失敗する）。
@@ -110,7 +111,7 @@ Custom のネットワークにするときは「**Also include default list of 
 
 ```bash
 #!/bin/bash
-# 版: 1   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
+# 版: 2   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
 set -u
 for home in /home/user /root; do
   [ -d "$home" ] || continue
@@ -123,14 +124,32 @@ exit 0
 - **`|| true` と `exit 0` を外さない** —— 非ゼロで終わるとセッションが起動しない
 - **`HOME` を外さない** —— root で走るので `$HOME` が session と違う
 - **claude.ai のアカウント側にプラグインを入れない** —— この組織では同期が届かず、将来届くと 2 つ載る
+- **入ったかを cloud session の中から見るときは `claude plugin list`**（Bash 経由）。
+  **`/plugin`（スラッシュ）は cloud session では使えない** —— 端末の UI 専用
 
-### 3-2. プラグインを更新したら「版」を上げる
+### 3-2. effort（`CLAUDE_CODE_EFFORT_LEVEL`）
+
+**routine のフォームに effort の欄は無い**（あるのはモデルセレクタだけ）。
+指定する口は cloud environment の環境変数 1 つで、値は `low` / `medium` / `high` /
+`xhigh` / `max` か `auto`。offdesk は **`xhigh`**（コードエージェント的な作業向け）。
+
+- **これが最優先。** `CLAUDE_CODE_EFFORT_LEVEL` は `--effort` と `/effort` を**上書きする** ——
+  置いたあとに人がセッションを開いて `/effort` で下げようとしても効かない
+- **`max` は環境変数でしか永続しない**（セッション内で `max` にしてもその 1 回だけ）
+- **環境は全プロジェクトで共通**なので、この値も全 routine に一律で効く。
+  プロジェクトごとに変えたくなったら environment を分けることになり、
+  `OFFDESK_URL` / `OFFDESK_TOKEN` / 許可ドメイン / setup script（＋`# 版: N`）が
+  環境の数だけ二重管理になる。**いまは 1 つで足りる**
+- Opus 5 に「最初に走らせた版の effort を保留する」挙動（Fable 5 / Opus 4.8 / 4.7 にある）は
+  **無い**ので、`/effort` が `Not applied` になる罠は踏まない
+
+### 3-3. プラグインを更新したら「版」を上げる
 
 setup script は**毎回は走らない**（環境がキャッシュされ、2 回目以降は skip）。
 `plugin/` を直しても、**放っておくと最長 1 週間は古い版**が使われる。
 **`# 版: N` の数字を上げて保存する。**
 
-### 3-3. Discord（Developer Portal）
+### 3-4. Discord（Developer Portal）
 
 | 置き場 | 値 |
 | --- | --- |
@@ -224,13 +243,15 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 | 症状 | 先に見るところ |
 | --- | --- |
 | スレッドに書いても何も起きない | Gateway の状態（§4） |
-| コマンドが届かない | Interactions Endpoint URL（§3-3） |
-| MCP のツールが 1 つも無い | environment が `offdesk` か（§2）。次に `claude plugin list`（§3-1） |
-| プラグインを直したのに古い挙動 | キャッシュ。**`# 版: N` を上げる**（§3-2） |
-| 承認待ちで固まる | プラグインの `hooks/hooks.json`（§3-1 が入っているか） |
+| コマンドが届かない | Interactions Endpoint URL（§3-4） |
+| MCP のツールが 1 つも無い | environment が `offdesk` か（§2）。次に `claude plugin list`（§3-1）。**`.mcp.json` の `alwaysLoad: true`** も見る —— tool search が効くとツールの定義が遅延ロードになり、症状は同じ「無音」になる |
+| プラグインを直したのに古い挙動 | キャッシュ。**`# 版: N` を上げる**（§3-3） |
+| 承認待ちで固まる | プラグインの `hooks/hooks.json`（§3-1 が入っているか）。**routine は承認を出さない仕様になった**ので、この症状なら疑うのは人が開いて続けているセッションの側 |
 | 5 分ちょうどで握りが落ちる | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`（§3） |
 | 質問の直後に先へ進む | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`（§3） |
+| セッションで `/effort` が効かない | 環境変数 `CLAUDE_CODE_EFFORT_LEVEL` が最優先だから（§3-2）。変えるなら環境の側 |
 | `queued` のまま止まっている | 10 分で cron が畳む。書き直せば新しい run が立つ |
 | 計画の URL が 401 | `PLAN_LINK_SIGNING_KEY`（§1） |
+| 計画を置けない（`plans must live under …`） | **`publish-plan.sh` は `/tmp/offdesk-plans` の下しか受けない**（要件 `F-E10`）。Claude が別の場所に書いている |
 | デプロイしたのに直らない | 握りが前の版のまま（§5） |
 | API が HTML を返す | `run_worker_first` の載せ忘れ（テストが落ちるはず） |

@@ -44,19 +44,34 @@ import type { WorkerEnv } from "../env.ts";
 import { discordRestConfig } from "../session/launch.ts";
 import { holdForAnswer } from "./hold.ts";
 import {
+  INVALID_PARAMS,
   type JsonRpcId,
   type JsonRpcRequest,
   METHOD_NOT_FOUND,
+  modernProtocolVersion,
   PARSE_ERROR,
   progressTokenOf,
   rpcError,
   rpcResult,
   toolResult,
   toolStatusResult,
+  UNSUPPORTED_PROTOCOL_VERSION,
 } from "./jsonrpc.ts";
 
+/**
+ * offdesk が話す版。**すべて legacy**（`initialize` で 1 度だけ交渉する世代）。
+ *
+ * **`2026-07-28`（modern）は実装しない。** あちらは版・識別・capability を
+ * 毎要求の `_meta` で運び、`server/discover` を必須にし、ヘッダと本文の一致検査
+ * （`-32020`）と MRTR を持つ —— 握り（要件 `F-B1`）は modern でも合法なので
+ * 急ぐ理由が無く、**動いている経路を作り直す危険の方が大きい。**
+ * 代わりに `unsupportedProtocolVersion` で「legacy へ降りてこい」と明示する。
+ */
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const LATEST_PROTOCOL_VERSION = PROTOCOL_VERSIONS[0];
+
+/** modern だけが持つ RPC。**来た時点で相手が modern だと分かる。** */
+const MODERN_ONLY_METHOD = "server/discover";
 
 const SERVER_INFO = { name: "offdesk", version: "0.4.0" } as const;
 
@@ -133,11 +148,59 @@ export type Waitable = {
   waitUntil: (promise: Promise<unknown>) => void;
 };
 
+/**
+ * `Origin` が付いていて、それが自分のオリジンでなければ 403（仕様の MUST）。
+ *
+ * **DNS リバインディング対策。** `/mcp` を叩くのは cloud session の中の
+ * MCP クライアントで、**ブラウザではないので `Origin` を送らない** ——
+ * 付いている時点で「ページから叩かれている」ことになる。
+ *
+ * Bearer（`OFFDESK_TOKEN`）があるので実害は小さいが、**層を 1 つ増やす**のは
+ * 安い（要件 `I-2` と同じ構え）。**未設定は素通し**にしない代わりに、
+ * `Origin` が無いこと自体は正常なので通す。
+ */
+const forbiddenOrigin = (request: Request): boolean => {
+  const origin = request.headers.get("origin");
+  if (origin === null || origin === "") return false;
+  return origin !== new URL(request.url).origin;
+};
+
+/**
+ * modern（`2026-07-28` 以降）の要求に、**決定的に**「その版は話せない」と返す。
+ *
+ * 仕様の dual-era フォールバックはこう定めている ——
+ * 「modern の要求を先に投げ、**`400`** が返ったら本文を見る。**認識できる modern の
+ * エラー**（この `-32022`）なら `supported` から選び直し、そうでなければ
+ * `initialize` に落ちる。」
+ *
+ * **`200` ＋ `-32601` ではこの分岐に入らない。** それが 2026-09-06 まで
+ * offdesk が返していたもので、繋がっていたのはクライアント側が寛容だったからに過ぎない。
+ * ここで `400` ＋ `-32022` ＋ `supported` を返せば、**相手は必ず legacy を選び直す。**
+ */
+const unsupportedProtocolVersion = (
+  id: JsonRpcId,
+  requested: string | null,
+): Response =>
+  rpcError(id, UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", {
+    status: 400,
+    data: {
+      supported: [...PROTOCOL_VERSIONS],
+      ...(requested === null ? {} : { requested }),
+    },
+  });
+
 export const handleMcp = async (
   request: Request,
   env: WorkerEnv,
   ctx: Waitable,
 ): Promise<Response> => {
+  if (forbiddenOrigin(request)) {
+    console.warn("[mcp] 別オリジンからの要求を拒否しました");
+    return rpcError(null, INVALID_PARAMS, "Origin not allowed", {
+      status: 403,
+    });
+  }
+
   let body: JsonRpcRequest;
   try {
     body = (await request.json()) as JsonRpcRequest;
@@ -147,6 +210,22 @@ export const handleMcp = async (
 
   const id = body.id ?? null;
   const method = body.method ?? "";
+
+  /*
+    **modern で来ていたら、話せる版を並べて断る**（`unsupportedProtocolVersion`）。
+
+    判定の根拠は 2 つだけ —— 要求が `_meta` で版を名乗っている（modern は必ず
+    載せる）か、modern にしか無い `server/discover` を呼んでいるか。
+    **`MCP-Protocol-Version` ヘッダは根拠にしない**（`modernProtocolVersion` の why）。
+  */
+  const declared = modernProtocolVersion(body.params);
+  if (
+    (declared !== null &&
+      !(PROTOCOL_VERSIONS as readonly string[]).includes(declared)) ||
+    method === MODERN_ONLY_METHOD
+  ) {
+    return unsupportedProtocolVersion(id, declared);
+  }
 
   if (
     (body.id === undefined || body.id === null) &&

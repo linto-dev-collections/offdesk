@@ -27,7 +27,13 @@ import {
 */
 
 const RUN = "OFFDESK-1111111111111111";
-/** 121,937 / 1,000,000 ＝ 12%（`claude-opus-5` は 1M の窓）。 */
+/**
+ * 121,937 / 1,000,000 ＝ 12%（`claude-sonnet-5` は native で 1M の窓）。
+ *
+ * **`claude-opus-5` は使わない**（2026-09-06）。あれは Claude Code の既定が 200K で、
+ * 1M は `[1m]` の変種でだけ開く —— ここで使うと「1M の窓を分母にする」ではなく
+ * 「表の値をそのまま使う」しか試せない。
+ */
 const USED_TOKENS = 121_937;
 
 let projectId: string;
@@ -91,7 +97,7 @@ describe("ask_human の問い", () => {
       `UPDATE runs SET ctx_used_tokens = ?, ctx_at = ?, ctx_model = ?
        WHERE run_key = ?`,
     )
-      .bind(USED_TOKENS, Date.now(), "claude-opus-5", RUN)
+      .bind(USED_TOKENS, Date.now(), "claude-sonnet-5", RUN)
       .run();
 
     await askAndWaitForPost();
@@ -155,7 +161,7 @@ describe("report", () => {
       `UPDATE runs SET ctx_used_tokens = ?, ctx_at = ?, ctx_model = ?
        WHERE run_key = ?`,
     )
-      .bind(USED_TOKENS, Date.now(), "claude-opus-5", RUN)
+      .bind(USED_TOKENS, Date.now(), "claude-sonnet-5", RUN)
       .run();
   });
 

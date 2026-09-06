@@ -9,7 +9,7 @@
       "name": "offdesk",
       "source": "./plugin/plugins/offdesk",
       "description": "MCP server (ask_human / ask_wait / report) for driving Claude Code from Discord, plus hooks that report context usage and session end.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

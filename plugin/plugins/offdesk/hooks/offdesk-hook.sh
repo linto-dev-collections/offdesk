@@ -20,8 +20,22 @@ transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/
 run_key="$(grep -m1 -ohE 'OFFDESK-[0-9a-f]{16}' "$transcript" 2>/dev/null | head -1)"
 [ -n "$run_key" ] || exit 0
 
+# Stream the tail of the transcript, newest line first.
+#
+# **Do not reverse the whole file.** This runs on PreToolUse -- once per tool
+# call -- and a transcript grows to megabytes over a long session, so reversing
+# all of it puts that cost on every tool call. The only line wanted is the most
+# recent assistant record carrying usage, which is always near the end.
+# SessionEnd's 1.5 second shared budget (raised by the timeout in hooks.json) is
+# a second reason to keep this cheap.
+TAIL_LINES=400
+
 rev_lines() {
-  if command -v tac >/dev/null 2>&1; then tac "$1"; else tail -r "$1"; fi
+  if command -v tac >/dev/null 2>&1; then
+    tail -n "$TAIL_LINES" "$1" | tac
+  else
+    tail -n "$TAIL_LINES" "$1" | tail -r
+  fi
 }
 
 post() {

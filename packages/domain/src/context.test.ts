@@ -68,10 +68,41 @@ describe("分子（公式のステータスラインと同じ式）", () => {
 });
 
 describe("分母（モデルから引く）", () => {
+  /*
+   **native 1M。** 変種を付けなくても 1M で走るモデル。
+   */
   it.each([
-    ["claude-opus-5", 1_000_000],
     ["claude-sonnet-5", 1_000_000],
     ["claude-fable-5-1", 1_000_000],
+    ["claude-fable-5", 1_000_000],
+    ["claude-mythos-5-1", 1_000_000],
+    ["claude-mythos-5", 1_000_000],
+  ])("%s は native の %i", (model, windowTokens) => {
+    expect(contextWindowFor(model)).toBe(windowTokens);
+    expect(hasKnownContextWindow(model)).toBe(true);
+  });
+
+  /*
+    **Claude Code の既定は 200K で、1M は `[1m]` でだけ開くモデル。**
+
+    ここが 1M だと、**実使用 60% が「12%」に見える**（2026-09-06 に踏んだ。
+    初版は `claude-opus-5` に 1M を入れていた）。要件 `F-D4` の
+    「多い側に倒すと気づけない」がそのまま出る場所なので、**素の名前は 200K。**
+  */
+  it.each([
+    ["claude-opus-5", 200_000],
+    ["claude-opus-4-8", 200_000],
+    ["claude-opus-4-7", 200_000],
+    ["claude-opus-4-6", 200_000],
+    ["claude-sonnet-4-6", 200_000],
+  ])("%s は既定の %i（1M は変種でだけ開く）", (model, windowTokens) => {
+    expect(contextWindowFor(model)).toBe(windowTokens);
+    expect(contextWindowFor(`${model}[1m]`)).toBe(1_000_000);
+    expect(hasKnownContextWindow(model)).toBe(true);
+  });
+
+  /** **1M を持たないモデル。** */
+  it.each([
     ["claude-haiku-4-5", 200_000],
     ["claude-haiku-4-5-20251001", 200_000],
   ])("%s は %i", (model, windowTokens) => {

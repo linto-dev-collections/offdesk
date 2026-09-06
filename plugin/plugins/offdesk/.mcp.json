@@ -4,7 +4,8 @@
       "type": "http",
       "url": "${OFFDESK_URL}/mcp",
       "headers": { "Authorization": "Bearer ${OFFDESK_TOKEN}" },
-      "timeout": 3600000
+      "timeout": 3600000,
+      "alwaysLoad": true
     }
   }
 }

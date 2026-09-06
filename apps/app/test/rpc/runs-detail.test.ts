@@ -289,7 +289,7 @@ describe("コンテキスト残量", () => {
     await seedRun({
       runKey: runKeyOf(1),
       projectId: alpha,
-      ctx: { usedTokens: 250_000, at: NOW, model: "claude-opus-5" },
+      ctx: { usedTokens: 250_000, at: NOW, model: "claude-sonnet-5" },
     });
 
     const { body } = await detail(runKeyOf(1));
@@ -297,7 +297,28 @@ describe("コンテキスト残量", () => {
     expect(body.contextWindowTokens).toBe(1_000_000);
     expect(body.contextWindowKnown).toBe(true);
     expect(body.contextPercent).toBe(25);
-    expect(body.contextModel).toBe("claude-opus-5");
+    expect(body.contextModel).toBe("claude-sonnet-5");
+  });
+
+  /*
+    **既定が 200K のモデルは 200K で引ける**（2026-09-06 に足した）。
+
+    Claude Code の既定の窓はモデルの最大窓ではない —— Opus 5 は素の名前だと 200K で、
+    1M は下の `[1m]` の変種でだけ開く。ここを 1M にしていたので、
+    **実使用 60% が「12%」に見えていた**（要件 `F-D4`「多い側に倒すと気づけない」）。
+  */
+  it("既定が 200K のモデルは 200K で引ける（知らないのではない）", async () => {
+    await seedRun({
+      runKey: runKeyOf(1),
+      projectId: alpha,
+      ctx: { usedTokens: 120_000, at: NOW, model: "claude-opus-5" },
+    });
+
+    const { body } = await detail(runKeyOf(1));
+
+    expect(body.contextWindowTokens).toBe(200_000);
+    expect(body.contextWindowKnown).toBe(true);
+    expect(body.contextPercent).toBe(60);
   });
 
   /*

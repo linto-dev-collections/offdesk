@@ -201,6 +201,12 @@ export const holdForAnswer = (input: HoldInput): Response => {
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
+      /*
+        **中継にバッファさせない**（MCP 仕様 `2026-07-28` の SHOULD）。
+        溜められると progress 通知がまとめて届き、クライアント側の idle の時計を
+        止められない —— 握りの前提（要件 `F-B6`）がそこで崩れる。
+      */
+      "x-accel-buffering": "no",
     },
   });
 };

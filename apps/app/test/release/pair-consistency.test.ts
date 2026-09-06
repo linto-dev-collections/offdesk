@@ -37,6 +37,8 @@ describe("cloud environment の設定が OPERATIONS.md に残っている（§9-
     ["OFFDESK_TOKEN", "全部 401"],
     ["CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS", "質問の直後に先へ進む"],
     ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "5 分で握りが落ちる"],
+    // ↑ ここまでは「欠けると壊れる」。**下の 1 つだけ性質が違う**（欠けても壊れない）。
+    ["CLAUDE_CODE_EFFORT_LEVEL", "既定の high で走るだけ（壊れない）"],
   ])("%s が書かれている", (name) => {
     expect(OPERATIONS).toContain(name);
   });
@@ -53,6 +55,27 @@ describe("cloud environment の設定が OPERATIONS.md に残っている（§9-
 
   it("背後へ回す設定を 0 にすると書かれている", () => {
     expect(OPERATIONS).toContain("CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0");
+  });
+
+  /*
+    **effort は routine のフォームから指定できない**（あるのはモデルセレクタだけ）ので、
+    置き場は cloud environment の環境変数 1 つ ——**コードから見えない。**
+    値まで書いてあることを見張らないと、「名前だけ書いてレベルを決め忘れた」で通る。
+
+    **この行だけ「欠けても壊れない」**（モデルの既定 `high` で走るだけ）。
+    §9-1 の表の他の行と性質が違うことは、`OPERATIONS.md` 側にも書いてある。
+  */
+  it("effort のレベルまで書かれている", () => {
+    expect(OPERATIONS).toContain("CLAUDE_CODE_EFFORT_LEVEL=xhigh");
+  });
+
+  /*
+    **環境変数が `/effort` より強いことを書いておく。** 置いたあとに
+    人がセッションを開いて下げようとしても効かない —— 知らないと
+    「コマンドが壊れている」に見える。
+  */
+  it("環境変数が /effort を上書きすることが書かれている", () => {
+    expect(OPERATIONS).toMatch(/CLAUDE_CODE_EFFORT_LEVEL[\s\S]{0,400}\/effort/);
   });
 
   it("許可ドメインはスキーム無しと書かれている", () => {
@@ -150,7 +173,7 @@ describe("offdesk 自身が marketplace", () => {
     readSource(".claude-plugin/marketplace.json"),
   ) as {
     name: string;
-    plugins: readonly { name: string; source: string }[];
+    plugins: readonly { name: string; source: string; version?: string }[];
   };
 
   it("マニフェストがルートにある", () => {
@@ -189,6 +212,20 @@ describe("offdesk 自身が marketplace", () => {
     const ci = readSource(".github/workflows/ci.yml");
 
     expect(ci).not.toContain("secrets.PLUGIN_MIRROR_DEPLOY_KEY");
+  });
+
+  /*
+    **版が 2 か所にある**（marketplace の目録と、プラグイン自身のマニフェスト）。
+    ずれると「入れた版」と「名乗る版」が食い違い、**切り分けのときに
+    どちらを信じてよいか分からなくなる。**
+  */
+  it("marketplace とプラグインの version が一致する", () => {
+    const manifest = JSON.parse(
+      readSource(`${PLUGIN_DIR}/.claude-plugin/plugin.json`),
+    ) as { version?: string };
+
+    expect(manifest.version).toBeDefined();
+    expect(MARKETPLACE.plugins[0]?.version).toBe(manifest.version);
   });
 });
 
