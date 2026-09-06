@@ -81,13 +81,13 @@ export type {
 } from "./repositories/run.ts";
 export {
   abandonAndStart,
-  abandonSilentRun,
   attachRunThread,
   countRuns,
   failQueuedRun,
   findRun,
   findRunByThread,
   findRunDetail,
+  finishSilentRun,
   insertRun,
   isTerminalStatus,
   listRuns,

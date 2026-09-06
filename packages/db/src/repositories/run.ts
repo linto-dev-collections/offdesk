@@ -250,11 +250,24 @@ export const listSilentLiveRuns = async (
   return rows.map((row) => ({ runKey: row.runKey }));
 };
 
-export const abandonSilentRun = async (
+/**
+ * 信号が途絶えた run を終わらせる。
+ *
+ * **`abandoned` ではなく `done`。** offdesk には成功も失敗も証拠が無い
+ * （`SessionEnd` は届かず `report(done)` を呼ぶ動線も無い）ので、終わり方は
+ * これ 1 通りしかない —— そこに「破棄」を書くと、PR まで出して終わった run
+ * 全部に嘘の札が付く。`abandoned` は `abandonAndStart`（起こし直しで前の run を
+ * 捨てた）のために取っておく。`runs_failure_reason_ck` があるので理由は書けず、
+ * 掃除で畳んだことは `events` の 1 行だけが持つ。
+ *
+ * **窓の条件を UPDATE にも入れる。** 引いてから畳むまでに信号が届いた run は
+ * ここで 0 行になる —— 生きているセッションを終端にすると、その `ask_human` が
+ * `closed` を受け取って作業をやめる。
+ */
+export const finishSilentRun = async (
   db: Db,
   input: {
     readonly runKey: string;
-    readonly reason: string;
     readonly before: number;
   },
   nowMs: number,
@@ -262,8 +275,7 @@ export const abandonSilentRun = async (
   const rows = await db
     .update(runs)
     .set({
-      status: "abandoned",
-      failureReason: input.reason,
+      status: "done",
       finishedAt: new Date(nowMs),
     })
     .where(

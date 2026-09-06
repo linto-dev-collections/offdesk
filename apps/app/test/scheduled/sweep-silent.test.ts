@@ -1,10 +1,6 @@
 import { env } from "cloudflare:workers";
 import { INBOUND_ACTIVE_WINDOW_MS } from "@offdesk/domain";
-import {
-  QUEUED_SWEEP_REASON,
-  SILENT_SWEEP_AFTER_MS,
-  SILENT_SWEEP_REASON,
-} from "@offdesk/usecase";
+import { QUEUED_SWEEP_REASON, SILENT_SWEEP_AFTER_MS } from "@offdesk/usecase";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eventRows, runRows, seedTwoProjects } from "../db/support.ts";
 import { runKeyOf, seedRun } from "../rpc/support.ts";
@@ -24,15 +20,18 @@ import { runCron } from "./support.ts";
   `Stop` は届いているのに `SessionEnd` だけが来ないので、本番の run は 1 本残らず
   `running` のまま残った。
 
-  **なぜこの窓で畳んでよいか。** `decideInbound` は `lastSignAt` がこの窓より
-  古い run を「もう死んでいる」と判断して次の 1 行で新しい run を立てる ——
-  **判断はすでにしていて、台帳に書いていないだけ。**
+  **なぜ 2 時間か。** 実測で生きているセッションの沈黙は最長 77 分だった ——
+  hook は道具を呼ぶたびに鳴るので、働いているセッションが 2 時間黙ることはない。
+
+  **なぜ `done` か。** 成功も失敗も証拠が無く（`report(done)` を呼ぶ動線も無い）、
+  終わり方はこれ 1 通りしかない。「破棄」を書くと終わった run 全部に嘘の札が付く。
 
   **時間で待たない。** 見るのは `created_at` / `activity_at` / `held_at` なので、
   種の時点で過去の時刻を入れればよい。
 */
 
-const HOUR = 60 * 60_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
 let alpha = "";
 let stub: OutboundStub;
@@ -54,20 +53,25 @@ const runRow = async (runKey: string) =>
   (await runRows()).find((row) => row.run_key === runKey);
 
 describe("窓を過ぎて信号が無い run を畳む", () => {
-  it("abandoned ＋ finished_at ＋ failure_reason が入る", async () => {
+  /*
+    **`abandoned` にしない。** offdesk には成功も失敗も証拠が無く、終わり方は
+    これ 1 通りしかないので、「破棄」を書くと終わった run 全部に嘘の札が付く
+    （実際に PR まで出した run が「破棄」で並んだ）。
+  */
+  it("done ＋ finished_at が入り、failure_reason は空のまま", async () => {
     const runKey = await seedRun({
       runKey: runKeyOf(1),
       projectId: alpha,
       status: "running",
-      createdAt: Date.now() - 7 * HOUR,
+      createdAt: Date.now() - 3 * HOUR,
     });
 
     await runCron();
 
     const row = await runRow(runKey);
-    expect(row?.status).toBe("abandoned");
+    expect(row?.status).toBe("done");
     expect(row?.finished_at).not.toBeNull();
-    expect(row?.failure_reason).toBe(SILENT_SWEEP_REASON);
+    expect(row?.failure_reason).toBeNull();
   });
 
   /** **`waiting` も畳む。** 答えを待ったままセッションが消えるのが最も多い形。 */
@@ -76,20 +80,20 @@ describe("窓を過ぎて信号が無い run を畳む", () => {
       runKey: runKeyOf(2),
       projectId: alpha,
       status: "waiting",
-      createdAt: Date.now() - 7 * HOUR,
+      createdAt: Date.now() - 3 * HOUR,
     });
 
     await runCron();
 
-    expect((await runRow(runKey))?.status).toBe("abandoned");
+    expect((await runRow(runKey))?.status).toBe("done");
   });
 
-  it("窓の内側（5 時間）では畳まない", async () => {
+  it("窓の内側（90 分）では畳まない", async () => {
     const runKey = await seedRun({
       runKey: runKeyOf(3),
       projectId: alpha,
       status: "running",
-      createdAt: Date.now() - 5 * HOUR,
+      createdAt: Date.now() - 90 * MINUTE,
     });
 
     await runCron();
@@ -97,10 +101,15 @@ describe("窓を過ぎて信号が無い run を畳む", () => {
     expect((await runRow(runKey))?.status).toBe("running");
   });
 
-  /** **窓は `decideInbound` と同じもの**（判断を 2 つ持たない）。 */
-  it("閾値は INBOUND_ACTIVE_WINDOW_MS と同じ", () => {
-    expect(SILENT_SWEEP_AFTER_MS).toBe(INBOUND_ACTIVE_WINDOW_MS);
-    expect(SILENT_SWEEP_AFTER_MS).toBe(6 * HOUR);
+  /*
+    **窓は 2 時間**（実測で生きているセッションの沈黙は最長 77 分）。
+    `INBOUND_ACTIVE_WINDOW_MS`（6 時間）より短いので、素の文の判定は
+    **こちらが先に決める**（畳んだ run は終端になり `decideInbound` が
+    終端を先に見る）。あちらは cron が止まったときの保険。
+  */
+  it("閾値は 2 時間で、素の文の窓より短い", () => {
+    expect(SILENT_SWEEP_AFTER_MS).toBe(2 * HOUR);
+    expect(SILENT_SWEEP_AFTER_MS).toBeLessThan(INBOUND_ACTIVE_WINDOW_MS);
   });
 
   it("run を増やさない", async () => {
@@ -108,7 +117,7 @@ describe("窓を過ぎて信号が無い run を畳む", () => {
       runKey: runKeyOf(4),
       projectId: alpha,
       status: "running",
-      createdAt: Date.now() - 7 * HOUR,
+      createdAt: Date.now() - 3 * HOUR,
     });
     const before = (await runRows()).length;
 
@@ -117,21 +126,26 @@ describe("窓を過ぎて信号が無い run を畳む", () => {
     expect((await runRows()).length).toBe(before);
   });
 
-  /** **無言で捨てない**（要件 `N-7`）。run 詳細の時系列に 1 行並ぶ。 */
-  it("events に error が 1 行入る", async () => {
+  /*
+    **無言で捨てない**（要件 `N-7`）。`failure_reason` には書けない
+    （`runs_failure_reason_ck`）ので、掃除で畳んだことを持つのはこの 1 行だけ。
+    **`error` にしない** —— 画面で赤い「エラー」が出ると、状態を `done` に
+    した意味が無くなる。
+  */
+  it("events に done が 1 行入る", async () => {
     const runKey = await seedRun({
       runKey: runKeyOf(5),
       projectId: alpha,
       status: "running",
-      createdAt: Date.now() - 7 * HOUR,
+      createdAt: Date.now() - 3 * HOUR,
     });
 
     await runCron();
 
     const events = (await eventRows()).filter((row) => row.run_key === runKey);
     expect(events).toHaveLength(1);
-    expect(events[0]?.kind).toBe("error");
-    expect(events[0]?.body).toContain("6 時間");
+    expect(events[0]?.kind).toBe("done");
+    expect(events[0]?.body).toContain("2 時間");
   });
 
   /*
@@ -143,7 +157,7 @@ describe("窓を過ぎて信号が無い run を畳む", () => {
       runKey: runKeyOf(6),
       projectId: alpha,
       status: "running",
-      createdAt: Date.now() - 7 * HOUR,
+      createdAt: Date.now() - 3 * HOUR,
     });
 
     await runCron();
@@ -231,8 +245,8 @@ describe("引いた後に信号が届いた run（レース）", () => {
     ここでは「引いた後に `activity_at` が動いた」状態を、種の時刻と
     `before` のずれで作って代わりに見る（レースの窓そのものは作れない）。
   */
-  it("abandonSilentRun は窓の内側なら false を返す", async () => {
-    const { abandonSilentRun, createDb } = await import("@offdesk/db");
+  it("finishSilentRun は窓の内側なら false を返す", async () => {
+    const { createDb, finishSilentRun } = await import("@offdesk/db");
     const runKey = await seedRun({
       runKey: runKeyOf(11),
       projectId: alpha,
@@ -241,13 +255,9 @@ describe("引いた後に信号が届いた run（レース）", () => {
       activityAt: Date.now() - 1 * HOUR,
     });
 
-    const won = await abandonSilentRun(
+    const won = await finishSilentRun(
       createDb(env.DB),
-      {
-        runKey,
-        reason: SILENT_SWEEP_REASON,
-        before: Date.now() - 6 * HOUR,
-      },
+      { runKey, before: Date.now() - 2 * HOUR },
       Date.now(),
     );
 

@@ -92,7 +92,6 @@ export {
   SILENT_SWEEP_AFTER_MS,
   SILENT_SWEEP_EVENT_BODY,
   SILENT_SWEEP_LIMIT,
-  SILENT_SWEEP_REASON,
   sweepSilentRuns,
 } from "./sweep-silent-runs.ts";
 export type {

@@ -1,6 +1,6 @@
 import {
-  abandonSilentRun,
   createDb,
+  finishSilentRun,
   insertEvent,
   listSilentLiveRuns,
 } from "@offdesk/db";
@@ -24,10 +24,16 @@ export const sweepSilentLiveRuns = async (env: WorkerEnv): Promise<void> => {
   const { swept, raced } = await sweepSilentRuns({
     store: {
       listSilent: (before, limit) => listSilentLiveRuns(db, before, limit),
-      abandon: (runKey, reason, before) =>
-        abandonSilentRun(db, { runKey, reason, before }, Date.now()),
+      finish: (runKey, before) =>
+        finishSilentRun(db, { runKey, before }, Date.now()),
+      /*
+        **`error` ではなく `done`。** 画面では「エラー」が赤い札で出るので、
+        PR まで出して終わった run の時系列にそれを置くと、状態を `done` に
+        変えた意味が無くなる。異常なのは「終わりを名乗らずに消えた」ことだけで、
+        それは本文が言う。
+      */
       record: async (runKey, body) => {
-        await insertEvent(db, { runKey, kind: "error", body }, Date.now());
+        await insertEvent(db, { runKey, kind: "done", body }, Date.now());
       },
     },
     nowMs: Date.now(),

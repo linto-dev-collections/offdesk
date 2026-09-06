@@ -1,16 +1,29 @@
-import { INBOUND_ACTIVE_WINDOW_MS } from "@offdesk/domain";
-
-export const SILENT_SWEEP_AFTER_MS = INBOUND_ACTIVE_WINDOW_MS;
+/**
+ * 信号が途絶えた run を畳むまでの窓。
+ *
+ * **2 時間の根拠は実測。** 生きているセッションの沈黙は最長 77 分だった ——
+ * hook は道具を呼ぶたびに鳴るので、働いているセッションが 2 時間黙ることはない。
+ * 誤って畳むと `ask_human` が `closed` を返してセッションが止まるので、
+ * 実測の 1.5 倍以上を取ってある。
+ *
+ * **`INBOUND_ACTIVE_WINDOW_MS`（6 時間）とは別の数字。** あちらは素の文を溜めるか
+ * 起こし直すかの窓だが、掃除が畳んだ run は終端になり `decideInbound` は
+ * 終端を先に見るので、**実質の判定はこちらが決める。** あちらは cron が
+ * 止まったときの保険として長いまま残す。
+ */
+export const SILENT_SWEEP_AFTER_MS = 2 * 60 * 60_000;
 
 /** 1 回で畳む上限（`QUEUED_SWEEP_LIMIT` と同じ理由 —— cron の 1 回を短く保つ）。 */
 export const SILENT_SWEEP_LIMIT = 50;
 
-/** `runs.failure_reason` に入る文。**URL もトークンも載せない**（脅威 12）。 */
-export const SILENT_SWEEP_REASON = "セッションからの信号が途絶えた";
-
-/** `events` に残す 1 行（要件 `N-7`）。**時間は定数から出す**（文だけ古くならない）。 */
+/**
+ * `events` に残す 1 行（要件 `N-7`）。**時間は定数から出す**（文だけ古くならない）。
+ *
+ * **`failure_reason` には書けない**（`runs_failure_reason_ck` は `failed` と
+ * `abandoned` にしか許さない）。掃除で畳んだことを持つのはこの 1 行だけ。
+ */
 export const SILENT_SWEEP_EVENT_BODY =
-  `セッションからの信号が ${SILENT_SWEEP_AFTER_MS / 3_600_000} 時間以上途絶えたので、この run を破棄として畳みました。` +
+  `セッションからの信号が ${SILENT_SWEEP_AFTER_MS / 3_600_000} 時間以上途絶えたので、この run を終了として畳みました。` +
   "同じスレッドに書き直せば新しい run が立ちます。";
 
 export type SweepSilentRunsPort = {
@@ -18,11 +31,7 @@ export type SweepSilentRunsPort = {
     before: number,
     limit: number,
   ) => Promise<readonly { readonly runKey: string }[]>;
-  readonly abandon: (
-    runKey: string,
-    reason: string,
-    before: number,
-  ) => Promise<boolean>;
+  readonly finish: (runKey: string, before: number) => Promise<boolean>;
   readonly record: (runKey: string, body: string) => Promise<void>;
 };
 
@@ -41,9 +50,7 @@ export const sweepSilentRuns = async (
 ): Promise<SweepSilentRunsResult> => {
   /*
     **同じ `before` を引くときと畳むときの両方に渡す。** 畳む側の UPDATE がこの境目を
-    条件に持つので、引いてから畳むまでに信号が届いた run は自動的に外れる ——
-    生きているセッションを終端にすると、その `ask_human` が `closed` を受け取って
-    作業をやめる（**動いている run を殺すことになる**）。
+    条件に持つので、引いてから畳むまでに信号が届いた run は自動的に外れる。
   */
   const before = deps.nowMs - SILENT_SWEEP_AFTER_MS;
   const silent = await deps.store.listSilent(before, SILENT_SWEEP_LIMIT);
@@ -52,7 +59,7 @@ export const sweepSilentRuns = async (
   const raced: string[] = [];
 
   for (const run of silent) {
-    if (!(await deps.store.abandon(run.runKey, SILENT_SWEEP_REASON, before))) {
+    if (!(await deps.store.finish(run.runKey, before))) {
       raced.push(run.runKey);
       continue;
     }
