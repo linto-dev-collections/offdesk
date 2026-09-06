@@ -120,14 +120,14 @@ describe("走っている run", () => {
       projectId: alpha,
       prompt: "あ".repeat(300),
       threadId: null,
-      ctx: { usedTokens: 50_000, at: NOW, model: null },
+      ctx: { usedTokens: 50_000, at: NOW, model: "claude-sonnet-5" },
     });
 
     const run = (await summary()).body.liveRuns[0];
 
     expect(run?.projectName).toBe("offdesk-test");
     expect(run?.promptTruncated).toBe(true);
-    expect(run?.contextPercent).toBe(25);
+    expect(run?.contextPercent).toBe(5);
   });
 
   /** 期間で切らない（走っているものは古くても出す）。 */

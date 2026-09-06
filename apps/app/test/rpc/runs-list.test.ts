@@ -333,21 +333,26 @@ describe("1 行の中身", () => {
     );
   });
 
-  it("残量の通報が来ていなければ contextPercent は null", async () => {
+  it("使用量の通報が来ていなければ contextPercent は null", async () => {
     await seedRun({ runKey: runKeyOf(1), projectId: alpha, ctx: null });
 
     expect((await list()).body.items[0]?.contextPercent).toBeNull();
   });
 
-  /** 既定の窓は 200k（要件 `F-D4`）。50k なら 25%。 */
-  it("モデルが分からなければ 200k を分母にする", async () => {
+  /** **窓を引けなければ `%` を出さない**（要件 `F-D4`）。仮の分母で割らない。 */
+  it("モデルが分からなければ contextPercent は null", async () => {
     await seedRun({
       runKey: runKeyOf(1),
       projectId: alpha,
       ctx: { usedTokens: 50_000, at: Date.now(), model: null },
     });
 
-    expect((await list()).body.items[0]?.contextPercent).toBe(25);
+    const item = (await list()).body.items[0];
+
+    expect(item?.contextPercent).toBeNull();
+    // **分子は本物なので返す**（画面はこれだけを出す）。
+    expect(item?.contextUsedTokens).toBe(50_000);
+    expect(item?.contextWindowKnown).toBe(false);
   });
 
   /** `claude-sonnet-5` は native で 1M。50k なら 5%。 */
@@ -361,12 +366,48 @@ describe("1 行の中身", () => {
     expect((await list()).body.items[0]?.contextPercent).toBe(5);
   });
 
-  /** 100 を超えても丸めない（要件 `F-D4`「203% は隠さない」）。 */
+  /*
+    **`%` の出どころも返す**（2026-09-06）。一覧が `%` しか返していなかったので、
+    画面が `123%` を裸で出し、**分母が仮であることが読めなかった。**
+  */
+  it("窓の出どころ（生の分子・分母・引けたか）も返す", async () => {
+    await seedRun({
+      runKey: runKeyOf(1),
+      projectId: alpha,
+      ctx: { usedTokens: 246_700, at: Date.now(), model: "Opus 5" },
+    });
+
+    const item = (await list()).body.items[0];
+
+    /*
+      **表示名（`Opus 5`）はモデル ID ではないので引けない。** 本番で実際に
+      入っていた形で、これを仮の分母で割ると `123%` になる —— そうしない。
+    */
+    expect(item?.contextUsedTokens).toBe(246_700);
+    expect(item?.contextWindowKnown).toBe(false);
+    expect(item?.contextPercent).toBeNull();
+  });
+
+  it("窓を引けたときは known を立てる", async () => {
+    await seedRun({
+      runKey: runKeyOf(1),
+      projectId: alpha,
+      ctx: { usedTokens: 250_000, at: Date.now(), model: "claude-sonnet-5" },
+    });
+
+    const item = (await list()).body.items[0];
+
+    expect(item?.contextWindowTokens).toBe(1_000_000);
+    expect(item?.contextWindowKnown).toBe(true);
+  });
+
+  /** 引けた窓を超えたときは丸めない（要件 `F-D4`「203% は隠さない」）。 */
   it("分母を超えていればそのまま 100 超えで返す", async () => {
     await seedRun({
       runKey: runKeyOf(1),
       projectId: alpha,
-      ctx: { usedTokens: 406_000, at: Date.now(), model: null },
+      // **引けた窓**を超える形にする（`claude-haiku-4-5` は 200k）。
+      ctx: { usedTokens: 406_000, at: Date.now(), model: "claude-haiku-4-5" },
     });
 
     expect((await list()).body.items[0]?.contextPercent).toBe(203);

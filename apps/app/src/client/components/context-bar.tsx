@@ -3,7 +3,10 @@ const BAR_MAX_PERCENT = 100;
 const asK = (tokens: number): string => `${Math.round(tokens / 1000)}k`;
 
 /**
- * コンテキスト残量（要件 `F-D4`）。Discord に出す 1 行と**同じ読み方**にしてある。
+ * コンテキスト**使用量**（要件 `F-D4`）。Discord に出す 1 行と**同じ読み方**にしてある。
+ *
+ * **「残量」ではない**（2026-09-06 に直した）。`used / window` なので、`123%` は
+ * 「残り 123%」ではなく**分母が間違っている**という合図。
  *
  * **`percent` が `null` なら「—」。** `0%` を出すと「まだ何も使っていない」という
  * 嘘になる（1 度も通報が届いていないだけ）。
@@ -18,28 +21,43 @@ export const ContextBar = ({
   windowKnown,
 }: {
   readonly percent: number | null;
-  readonly usedTokens?: number | null;
-  readonly windowTokens?: number | undefined;
-  readonly windowKnown?: boolean | undefined;
+  /*
+    **省略可にしない**（2026-09-06）。一覧が `percent` だけを渡していたせいで、
+    生のトークン数も「窓が引けていません」も出ず、`123%` が裸で出た。
+    必須にしておけば、呼ぶ側が渡し忘れた時点で型検査が止める。
+  */
+  readonly usedTokens: number | null;
+  readonly windowTokens: number;
+  readonly windowKnown: boolean;
 }) => {
-  if (percent === null) {
+  if (usedTokens === null) {
     return (
       <span
         className="text-muted-foreground text-xs"
-        title="残量の通報がまだ届いていません"
+        title="使用量の通報がまだ届いていません"
       >
         —
       </span>
     );
   }
 
+  // 窓を引けていないなら分子だけ。仮の分母で割った `%` は嘘になる（要件 `F-D4`）。
+  if (!windowKnown || percent === null) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs tabular-nums">{asK(usedTokens)}</span>
+        <span
+          className="text-muted-foreground text-xs"
+          title="モデル名から窓を引けていないので、割合は出せません"
+        >
+          窓が引けていません
+        </span>
+      </div>
+    );
+  }
+
   const filled = Math.min(Math.max(percent, 0), BAR_MAX_PERCENT);
-  const tokens =
-    usedTokens === null ||
-    usedTokens === undefined ||
-    windowTokens === undefined
-      ? null
-      : `${asK(usedTokens)}/${asK(windowTokens)}`;
+  const tokens = `${asK(usedTokens)}/${asK(windowTokens)}`;
 
   return (
     <div className="flex items-center gap-2">
@@ -59,19 +77,9 @@ export const ContextBar = ({
         />
       </div>
       <span className="text-xs tabular-nums">{percent}%</span>
-      {tokens === null ? null : (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {tokens}
-        </span>
-      )}
-      {windowKnown === false ? (
-        <span
-          className="text-muted-foreground text-xs"
-          title="モデル名から窓を引けていないので、200k を仮の分母にしています"
-        >
-          （分母は仮）
-        </span>
-      ) : null}
+      <span className="text-muted-foreground text-xs tabular-nums">
+        {tokens}
+      </span>
     </div>
   );
 };

@@ -85,6 +85,14 @@ export const RunSummary = z.object({
   finishedAt: z.number().int().nullable(),
   /** 分子が 1 度も届いていなければ `null`（要件 `F-D4`）。 */
   contextPercent: z.number().nullable(),
+  /*
+    **`%` だけでは要件 `F-D4` の「生のトークン数を併記する」が守れない**
+    （2026-09-06 に本番で `123%` が裸で出て踏んだ）。詳細と同じ 3 つを返す。
+  */
+  contextUsedTokens: z.number().int().nullable(),
+  contextWindowTokens: z.number().int(),
+  /** `false` なら 200k は**仮の分母**。 */
+  contextWindowKnown: z.boolean(),
 });
 export type RunSummary = z.infer<typeof RunSummary>;
 

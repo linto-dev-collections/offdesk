@@ -24,6 +24,7 @@ import {
   contextLine,
   contextWindowFor,
   foldInboundLines,
+  hasKnownContextWindow,
   isAskProblem,
   isHeldAlive,
   isReportProblem,
@@ -398,7 +399,7 @@ const deliverQueued = async (
 };
 
 /**
- * その run の残量の 1 行（要件 `F-D4`・P5 §3-5）。**`null` なら何も足さない。**
+ * その run の使用量の 1 行（要件 `F-D4`・P5 §3-5）。**`null` なら何も足さない。**
  *
  * **`run` は要求の頭で引いたもので構わない。** 通報が来るのは `PreToolUse`
  * （＝このツール呼び出しの直前）なので、`gateRun` が読んだ時点で
@@ -409,6 +410,7 @@ const contextTailOf = (run: RunRecord): string | null =>
   contextLine({
     usedTokens: run.ctxUsedTokens,
     windowTokens: contextWindowFor(run.ctxModel),
+    windowKnown: hasKnownContextWindow(run.ctxModel),
   });
 
 const askHuman = async (

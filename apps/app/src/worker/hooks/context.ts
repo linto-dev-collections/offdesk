@@ -4,7 +4,7 @@ import { contextUsedTokens, hasKnownContextWindow } from "@offdesk/domain";
 import type { WorkerEnv } from "../env.ts";
 
 /*
-  コンテキスト残量の通報（要件 `F-D4`・`F-D5`・計画 P5 §3-3）。
+  コンテキスト使用量の通報（要件 `F-D4`・`F-D5`・計画 P5 §3-3）。
 
   **`PreToolUse` と `Stop` の両方がここへ来る。** 表示に使われるのは
   `PreToolUse` の方（次の発言の直前に鳴るので、いちばん新しい値になる）で、

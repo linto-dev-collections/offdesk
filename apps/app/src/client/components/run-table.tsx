@@ -82,7 +82,7 @@ export const RunTable = ({
             <TableHead>状態</TableHead>
             <TableHead>プロジェクト</TableHead>
             <TableHead>プロンプト</TableHead>
-            <TableHead>残量</TableHead>
+            <TableHead>使用量</TableHead>
             <TableHead>開始</TableHead>
             <TableHead>所要</TableHead>
           </TableRow>
@@ -113,7 +113,12 @@ export const RunTable = ({
                 </div>
               </TableCell>
               <TableCell>
-                <ContextBar percent={item.contextPercent} />
+                <ContextBar
+                  percent={item.contextPercent}
+                  usedTokens={item.contextUsedTokens}
+                  windowTokens={item.contextWindowTokens}
+                  windowKnown={item.contextWindowKnown}
+                />
               </TableCell>
               <TableCell className="whitespace-nowrap">
                 <div className="text-xs">

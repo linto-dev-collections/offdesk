@@ -9,7 +9,7 @@ import {
 } from "./context.ts";
 
 /*
-  残量の 1 行（計画 P5 §5・要件 `F-D4`）。
+  使用量の 1 行（計画 P5 §5・要件 `F-D4`）。
 
   **分子の式と、分母の引き方が別々に壊れる。** 分子は「`output` を足してしまう」
   「`cache_read` を落とす」の 2 通り、分母は「モデルを見ていない」の 1 通りで、
@@ -72,6 +72,7 @@ describe("分母（モデルから引く）", () => {
    **native 1M。** 変種を付けなくても 1M で走るモデル。
    */
   it.each([
+    ["claude-opus-5", 1_000_000],
     ["claude-sonnet-5", 1_000_000],
     ["claude-fable-5-1", 1_000_000],
     ["claude-fable-5", 1_000_000],
@@ -83,23 +84,26 @@ describe("分母（モデルから引く）", () => {
   });
 
   /*
-    **Claude Code の既定は 200K で、1M は `[1m]` でだけ開くモデル。**
+    **`claude-opus-5` は 1M**（2026-09-06 に本番で実測して戻した）。
 
-    ここが 1M だと、**実使用 60% が「12%」に見える**（2026-09-06 に踏んだ。
-    初版は `claude-opus-5` に 1M を入れていた）。要件 `F-D4` の
-    「多い側に倒すと気づけない」がそのまま出る場所なので、**素の名前は 200K。**
+    公式の「Claude Code の既定」の表は 200K としているが、**cloud session の
+    `/context` は 1M を返す** —— offdesk が見るのは cloud session だけなので、
+    そちらに合わせる。
+
+    **確信の無いモデルは表に足さない。** 引けなければ `%` を出さない側に
+    倒れるので、当てずっぽうの分母より「分かりません」の方が良い。
   */
-  it.each([
-    ["claude-opus-5", 200_000],
-    ["claude-opus-4-8", 200_000],
-    ["claude-opus-4-7", 200_000],
-    ["claude-opus-4-6", 200_000],
-    ["claude-sonnet-4-6", 200_000],
-  ])("%s は既定の %i（1M は変種でだけ開く）", (model, windowTokens) => {
-    expect(contextWindowFor(model)).toBe(windowTokens);
-    expect(contextWindowFor(`${model}[1m]`)).toBe(1_000_000);
-    expect(hasKnownContextWindow(model)).toBe(true);
+  it("claude-opus-5 は 1M（cloud session の実測）", () => {
+    expect(contextWindowFor("claude-opus-5")).toBe(1_000_000);
+    expect(hasKnownContextWindow("claude-opus-5")).toBe(true);
   });
+
+  it.each(["claude-opus-4-8", "claude-opus-4-6", "claude-sonnet-4-6"])(
+    "%s は表に無いので「引けない」と言う",
+    (model) => {
+      expect(hasKnownContextWindow(model)).toBe(false);
+    },
+  );
 
   /** **1M を持たないモデル。** */
   it.each([
@@ -158,13 +162,21 @@ const barOf = (line: string): string => {
 
 describe("1 行の形", () => {
   it("バー ＋ % ＋ 生の値", () => {
-    expect(contextLine({ usedTokens: 124_000, windowTokens: 200_000 })).toBe(
-      "-# ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 62% ・124k/200k",
-    );
+    expect(
+      contextLine({
+        usedTokens: 124_000,
+        windowTokens: 200_000,
+        windowKnown: true,
+      }),
+    ).toBe("-# ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 62% ・124k/200k");
   });
 
   it("バーは 20 文字", () => {
-    const line = contextLine({ usedTokens: 33_000, windowTokens: 200_000 });
+    const line = contextLine({
+      usedTokens: 33_000,
+      windowTokens: 200_000,
+      windowKnown: true,
+    });
 
     expect(line).not.toBeNull();
     expect([...barOf(line ?? "")]).toHaveLength(CONTEXT_BAR_WIDTH);
@@ -175,7 +187,11 @@ describe("1 行の形", () => {
     ["半分", 100_000, "50%", 10],
     ["分母ちょうど", 200_000, "100%", CONTEXT_BAR_WIDTH],
   ])("%s なら %s", (_label, usedTokens, percent, filled) => {
-    const line = contextLine({ usedTokens, windowTokens: 200_000 });
+    const line = contextLine({
+      usedTokens,
+      windowTokens: 200_000,
+      windowKnown: true,
+    });
 
     expect(line).toContain(` ${percent} `);
     expect([...barOf(line ?? "")].filter((c) => c === "▓")).toHaveLength(
@@ -188,7 +204,11 @@ describe("1 行の形", () => {
     切り捨てにしてある。
   */
   it("99% では満杯にならない", () => {
-    const line = contextLine({ usedTokens: 199_000, windowTokens: 200_000 });
+    const line = contextLine({
+      usedTokens: 199_000,
+      windowTokens: 200_000,
+      windowKnown: true,
+    });
 
     expect(line).toContain(" 100% ");
     expect([...barOf(line ?? "")].filter((c) => c === "▓")).toHaveLength(
@@ -202,7 +222,11 @@ describe("1 行の形", () => {
     生のトークン数を併記してあるので真値は見失わない。
   */
   it("分母を超えても % はそのまま（203%）", () => {
-    const line = contextLine({ usedTokens: 406_000, windowTokens: 200_000 });
+    const line = contextLine({
+      usedTokens: 406_000,
+      windowTokens: 200_000,
+      windowKnown: true,
+    });
 
     expect(line).toBe("-# ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 203% ・406k/200k");
     expect([...barOf(line ?? "")].filter((c) => c === "▓")).toHaveLength(
@@ -215,7 +239,13 @@ describe("1 行の形", () => {
     「まだ何も使っていない」という嘘になる（起動直後は必ずこの状態）。
   */
   it("usedTokens が null なら 1 行も出さない", () => {
-    expect(contextLine({ usedTokens: null, windowTokens: 200_000 })).toBeNull();
+    expect(
+      contextLine({
+        usedTokens: null,
+        windowTokens: 200_000,
+        windowKnown: true,
+      }),
+    ).toBeNull();
   });
 
   /** 分母が壊れていたら割れないので出さない（`0%` や `Infinity%` を出さない）。 */
@@ -223,19 +253,53 @@ describe("1 行の形", () => {
     ["0", 0],
     ["負", -1],
   ])("分母が %s なら 1 行も出さない", (_label, windowTokens) => {
-    expect(contextLine({ usedTokens: 100, windowTokens })).toBeNull();
+    expect(
+      contextLine({ usedTokens: 100, windowTokens, windowKnown: true }),
+    ).toBeNull();
   });
 
   it("1M の窓でも読める形になる", () => {
-    expect(contextLine({ usedTokens: 124_000, windowTokens: 1_000_000 })).toBe(
-      "-# ▓▓░░░░░░░░░░░░░░░░░░ 12% ・124k/1000k",
-    );
+    expect(
+      contextLine({
+        usedTokens: 124_000,
+        windowTokens: 1_000_000,
+        windowKnown: true,
+      }),
+    ).toBe("-# ▓▓░░░░░░░░░░░░░░░░░░ 12% ・124k/1000k");
+  });
+
+  /*
+    **窓を引けていなければ `%` もバーも出さない**（2026-09-06 に本番で踏んだ）。
+    仮の分母で割った `123%` は、読み手にそれが嘘だと分からない。
+  */
+  describe("窓を引けていないとき", () => {
+    it("分子だけを出し、% とバーは出さない", () => {
+      const line = contextLine({
+        usedTokens: 246_700,
+        windowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+        windowKnown: false,
+      });
+
+      expect(line).toBe("-# 247k 使用（窓が引けていません）");
+      expect(line).not.toContain("%");
+      expect(line).not.toContain("▓");
+    });
+
+    it("通報が 1 度も来ていなければ、やはり 1 行も出さない", () => {
+      expect(
+        contextLine({
+          usedTokens: null,
+          windowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+          windowKnown: false,
+        }),
+      ).toBeNull();
+    });
   });
 
   /** `-# ` は Discord の小さい文字。**発言の末尾に付ける前提の形。** */
   it("小さい文字の印から始まる", () => {
-    expect(contextLine({ usedTokens: 1, windowTokens: 200_000 })).toMatch(
-      /^-# /,
-    );
+    expect(
+      contextLine({ usedTokens: 1, windowTokens: 200_000, windowKnown: true }),
+    ).toMatch(/^-# /);
   });
 });

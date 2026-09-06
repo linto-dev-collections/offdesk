@@ -138,26 +138,45 @@ describe("RunSummary", () => {
     createdAt: 1,
     finishedAt: null,
     contextPercent: null,
+    contextUsedTokens: null,
+    contextWindowTokens: 200_000,
+    contextWindowKnown: false,
   };
 
-  it("null を許すのは 3 つだけ", () => {
+  it("null を許すのは 4 つだけ", () => {
     expect(RunSummary.parse(summary)).toEqual(summary);
   });
+
+  /*
+    **分母は必ず入る**（`null` を許さない）。要件 `F-D4` は「引けなくても
+    200k を仮に置く」と決めているので、`null` は「引けなかった」の表現にならない ——
+    それを言うのは `contextWindowKnown` の役目。
+  */
+  it.each(["contextWindowTokens", "contextWindowKnown"])(
+    "%s に null は入らない",
+    (key) => {
+      expect(() => RunSummary.parse({ ...summary, [key]: null })).toThrow();
+    },
+  );
 
   /*
     **キーが消えることを許さない。** `undefined` を通すと、出力検証が
     「無い」と「付け忘れ」を区別できなくなる（`MeOutput.imageUrl` と同じ判断）。
   */
-  it.each(["threadUrl", "finishedAt", "contextPercent"])(
-    "%s のキーが無ければ落ちる",
-    (key) => {
-      const rest = Object.fromEntries(
-        Object.entries(summary).filter(([name]) => name !== key),
-      );
+  it.each([
+    "threadUrl",
+    "finishedAt",
+    "contextPercent",
+    "contextUsedTokens",
+    "contextWindowTokens",
+    "contextWindowKnown",
+  ])("%s のキーが無ければ落ちる", (key) => {
+    const rest = Object.fromEntries(
+      Object.entries(summary).filter(([name]) => name !== key),
+    );
 
-      expect(() => RunSummary.parse(rest)).toThrow();
-    },
-  );
+    expect(() => RunSummary.parse(rest)).toThrow();
+  });
 
   it("知らない状態は落ちる（DDL の CHECK と同じ 6 値）", () => {
     expect(() =>

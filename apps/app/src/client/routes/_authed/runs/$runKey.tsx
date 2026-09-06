@@ -108,7 +108,7 @@ const RunDetail = () => {
                 formatJst(run.finishedAt)
               )}
             </Field>
-            <Field label="コンテキスト残量">
+            <Field label="コンテキスト使用量">
               <ContextBar
                 percent={run.contextPercent}
                 usedTokens={run.contextUsedTokens}

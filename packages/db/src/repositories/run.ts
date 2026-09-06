@@ -28,7 +28,7 @@ export type RunRecord = {
   readonly heldAt: number | null;
   /** Claude 由来の信号（要件 `F-C6` の長い窓）。**握りの印ではない。** */
   readonly activityAt: number | null;
-  /** 残量バーの分子（要件 `F-D4`）。**1 度も通報が来ていなければ NULL。** */
+  /** 使用量バーの分子（要件 `F-D4`）。**1 度も通報が来ていなければ NULL。** */
   readonly ctxUsedTokens: number | null;
   /** 参考値。**分子には含めない**（`contextUsedTokens` が足さない）。 */
   readonly ctxOutputTokens: number | null;
@@ -403,7 +403,7 @@ export const abandonAndStart = async (
   ]);
 };
 
-/* ここから下は P5（hooks とコンテキスト残量）が使う。 */
+/* ここから下は P5（hooks とコンテキスト使用量）が使う。 */
 
 /**
  * コンテキストの通報を入れる（要件 `F-D4`・`F-D5`）。
@@ -419,7 +419,7 @@ export const abandonAndStart = async (
  * `ctx_model` は対に入っていないので、分からなければ NULL のまま置ける。
  *
  * **終端の run でも書く。** `SessionEnd` の後に `Stop` が来ることはあるし、
- * 最後の残量が残っていれば P7a の run 詳細が読める。状態は触らないので、
+ * 最後の使用量が残っていれば P7a の run 詳細が読める。状態は触らないので、
  * 終端の意味は変わらない。
  *
  * **台帳に行があったかを返す。** 呼ぶ側がこれを見て `events` の 1 行を諦める ——

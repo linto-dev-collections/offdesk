@@ -18,6 +18,9 @@ const run = (overrides: Partial<RunSummary> = {}): RunSummary => ({
   createdAt: NOW - 30 * MINUTE,
   finishedAt: null,
   contextPercent: 42,
+  contextUsedTokens: 84_000,
+  contextWindowTokens: 200_000,
+  contextWindowKnown: true,
   ...overrides,
 });
 
@@ -108,16 +111,19 @@ describe("RunTable", () => {
     document.querySelector<HTMLElement>('[data-slot="context-bar-fill"]')?.style
       .width;
 
-  it("残量が来ていなければ — になり、バーも出ない", async () => {
+  it("使用量が来ていなければ — になり、バーも出ない", async () => {
     await renderWithRouter(
-      <RunTable items={[run({ contextPercent: null })]} now={NOW} />,
+      <RunTable
+        items={[run({ contextPercent: null, contextUsedTokens: null })]}
+        now={NOW}
+      />,
     );
 
     expect(screen.getByText("—")).toBeDefined();
     expect(barWidth()).toBeUndefined();
   });
 
-  it("残量が来ていればバーと % が出る", async () => {
+  it("使用量が来ていればバーと % が出る", async () => {
     await renderWithRouter(<RunTable items={[run()]} now={NOW} />);
 
     expect(screen.getByText("42%")).toBeDefined();
@@ -132,6 +138,53 @@ describe("RunTable", () => {
 
     expect(screen.getByText("203%")).toBeDefined();
     expect(barWidth()).toBe("100%");
+  });
+
+  /*
+    **一覧でも生のトークン数を併記する**（要件 `F-D4`）。2026-09-06 に本番で
+    `123%` が裸で出て、何の 123% か読めなかった。
+  */
+  it("生のトークン数を併記する", async () => {
+    await renderWithRouter(<RunTable items={[run()]} now={NOW} />);
+
+    expect(screen.getByText("84k/200k")).toBeDefined();
+  });
+
+  /*
+    **窓を引けていなければ `%` を出さない**（要件 `F-D4`）。2026-09-06 に本番で
+    仮の分母から出た `123%` が裸で並び、何の 123% か読めなかった。
+  */
+  it("窓を引けていなければ分子だけを出し、% とバーは出さない", async () => {
+    await renderWithRouter(
+      <RunTable
+        items={[
+          run({
+            contextPercent: null,
+            contextUsedTokens: 246_700,
+            contextWindowKnown: false,
+          }),
+        ]}
+        now={NOW}
+      />,
+    );
+
+    expect(screen.getByText("247k")).toBeDefined();
+    expect(screen.getByText("窓が引けていません")).toBeDefined();
+    expect(screen.queryByText("123%")).toBeNull();
+    expect(barWidth()).toBeUndefined();
+  });
+
+  it("窓を引けていれば「窓が引けていません」は出ない", async () => {
+    await renderWithRouter(<RunTable items={[run()]} now={NOW} />);
+
+    expect(screen.queryByText("窓が引けていません")).toBeNull();
+  });
+
+  it("見出しは「使用量」（残りではなく使った割合）", async () => {
+    await renderWithRouter(<RunTable items={[run()]} now={NOW} />);
+
+    expect(screen.getByText("使用量")).toBeDefined();
+    expect(screen.queryByText("残量")).toBeNull();
   });
 
   it("空なら空の表示になる（3 状態のうちの空）", async () => {

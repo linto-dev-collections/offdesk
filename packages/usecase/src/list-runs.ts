@@ -1,4 +1,9 @@
-import { contextWindowFor, discordThreadUrl, truncate } from "@offdesk/domain";
+import {
+  contextWindowFor,
+  discordThreadUrl,
+  hasKnownContextWindow,
+  truncate,
+} from "@offdesk/domain";
 
 export type RunStatusView =
   | "queued"
@@ -38,6 +43,9 @@ export type RunSummaryView = {
   readonly createdAt: number;
   readonly finishedAt: number | null;
   readonly contextPercent: number | null;
+  readonly contextUsedTokens: number | null;
+  readonly contextWindowTokens: number;
+  readonly contextWindowKnown: boolean;
 };
 
 export type RunListFilterInput = {
@@ -63,6 +71,7 @@ export const contextPercentOf = (input: {
   readonly model: string | null;
 }): number | null => {
   if (input.usedTokens === null) return null;
+  if (!hasKnownContextWindow(input.model)) return null;
 
   const window = contextWindowFor(input.model);
   if (window <= 0) return null;
@@ -90,6 +99,10 @@ export const toRunSummary = (
       usedTokens: row.ctxUsedTokens,
       model: row.ctxModel,
     }),
+    // `%` がどこから出たかも返す（`get-run-detail.ts` と同じ 3 つ）。
+    contextUsedTokens: row.ctxUsedTokens,
+    contextWindowTokens: contextWindowFor(row.ctxModel),
+    contextWindowKnown: hasKnownContextWindow(row.ctxModel),
   };
 };
 

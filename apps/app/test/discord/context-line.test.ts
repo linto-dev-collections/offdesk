@@ -84,9 +84,14 @@ const askAndWaitForPost = async (): Promise<void> => {
   await settle();
 };
 
+/**
+ * 末尾に付く 1 行。**バーの有無で探さない**（2026-09-06）——
+ * 窓を引けていないときはバーも `%` も出ない形になるので、
+ * `-# ▓` で探すと**その行を「無い」と誤読する。**
+ */
 const contextOf = (raw: string): string => {
   const content = (JSON.parse(raw) as { content?: string }).content ?? "";
-  const line = content.split("\n").find((row) => row.startsWith("-# ▓"));
+  const line = content.split("\n").find((row) => row.startsWith("-# "));
   return line ?? "";
 };
 
@@ -125,7 +130,8 @@ describe("ask_human の問い", () => {
     **モデルが分からなければ既定の窓（200,000）に倒れる。** 分母がズレるので
     `61%` になるが、**生のトークン数を併記してあるので真値は見失わない**。
   */
-  it("モデルが無ければ既定の窓で描く", async () => {
+  /** モデルが無ければ窓を引けないので、**分子だけ**を出す（要件 `F-D4`）。 */
+  it("モデルが無ければ % を出さず、分子だけを出す", async () => {
     await seedRun({ projectId, runKey: RUN });
     await env.DB.prepare(
       "UPDATE runs SET ctx_used_tokens = ?, ctx_at = ? WHERE run_key = ?",
@@ -136,7 +142,7 @@ describe("ask_human の問い", () => {
     await askAndWaitForPost();
 
     const body = postedBodies(`/channels/${THREAD_ID}/messages`)[0] ?? "";
-    expect(contextOf(body)).toBe("-# ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░ 61% ・122k/200k");
+    expect(contextOf(body)).toBe("-# 122k 使用（窓が引けていません）");
   });
 });
 
