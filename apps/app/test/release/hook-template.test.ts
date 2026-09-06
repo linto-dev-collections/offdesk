@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -19,11 +19,6 @@ const readSource = (relative: string): string =>
 const SCRIPT_PATH = "plugin/plugins/offdesk/hooks/offdesk-hook.sh";
 const SCRIPT = readSource(SCRIPT_PATH);
 
-/*
-  **プラグインの `hooks/hooks.json` を読む**（2026-09-06）。以前は対象リポジトリへ
-  写す `.claude/settings.json` だったが、配布物がプラグインへ移って
-  **対象リポジトリには 1 バイトも置かなくなった**。形は同じ（`{ hooks: { … } }`）。
-*/
 const SETTINGS = JSON.parse(
   readSource("plugin/plugins/offdesk/hooks/hooks.json"),
 ) as {
@@ -36,27 +31,58 @@ const SETTINGS = JSON.parse(
   >;
 };
 
+type BashRun = { readonly status: number; readonly stdout: string };
+
+const bashRun = (
+  args: readonly string[],
+  options: {
+    readonly input: string;
+    readonly env: Readonly<Record<string, string>>;
+  },
+): BashRun => {
+  const result = spawnSync("bash", [...args], {
+    input: options.input,
+    encoding: "utf8",
+    env: { ...options.env },
+  });
+
+  const failure = result.error as (Error & { code?: string }) | undefined;
+  if (failure !== undefined && failure.code !== "EPIPE") throw failure;
+
+  return { status: result.status ?? 1, stdout: result.stdout ?? "" };
+};
+
 const runHook = (
   stdin: string,
   envOverrides: Readonly<Record<string, string>> = {},
-): { readonly status: number; readonly stdout: string } => {
-  try {
-    const stdout = execFileSync("bash", [path.join(REPO_ROOT, SCRIPT_PATH)], {
-      input: stdin,
-      encoding: "utf8",
-      env: {
-        PATH: process.env.PATH ?? "",
-        OFFDESK_URL: "https://offdesk.invalid",
-        OFFDESK_TOKEN: "test-token",
-        ...envOverrides,
-      },
+): BashRun =>
+  bashRun([path.join(REPO_ROOT, SCRIPT_PATH)], {
+    input: stdin,
+    env: {
+      PATH: process.env.PATH ?? "",
+      OFFDESK_URL: "https://offdesk.invalid",
+      OFFDESK_TOKEN: "test-token",
+      ...envOverrides,
+    },
+  });
+
+describe("harness が stdin の競合で出力を捨てない", () => {
+  it("stdin を読まずに終了するコマンドでも stdout を拾える", () => {
+    const verdict = bashRun(["-c", "printf 'ok'"], {
+      input: "x".repeat(1_000_000),
+      env: { PATH: process.env.PATH ?? "" },
     });
-    return { status: 0, stdout };
-  } catch (error) {
-    const status = (error as { status?: number }).status ?? 1;
-    return { status, stdout: "" };
-  }
-};
+
+    expect(verdict.status).toBe(0);
+    expect(verdict.stdout).toBe("ok");
+  });
+
+  it("コマンドが見つからなければ投げる", () => {
+    expect(() =>
+      bashRun(["-c", "true"], { input: "", env: { PATH: "/nonexistent" } }),
+    ).toThrow();
+  });
+});
 
 describe("run_key の形がコードと対で維持されている", () => {
   it("newRunKey が作る値をスクリプトの正規表現が拾う", () => {
@@ -88,11 +114,6 @@ describe("読む行を絞っている", () => {
     expect(SCRIPT).toContain("tail -r");
   });
 
-  /*
-    **末尾だけを反転する**（2026-09-06）。この hook は `PreToolUse` ——
-    ツール呼び出しのたびに走り、転写ログは長いセッションで数 MB〜数十 MB になる。
-    全体を `tac` に流すと、その CPU と I/O が**全ツール呼び出しに乗る。**
-  */
   it("反転する前に tail で行数を絞っている", () => {
     expect(SCRIPT).toMatch(/tail -n "\$TAIL_LINES" "\$1" \| tac/);
     expect(SCRIPT).toMatch(/TAIL_LINES=[0-9]+/);
@@ -133,12 +154,6 @@ describe("hook の名前が hooks.json と対で維持されている", () => {
   it("PreToolUse に承認の群と通報の群が両方ある", () => {
     const groups = SETTINGS.hooks.PreToolUse ?? [];
 
-    /*
-      **matcher は 2 通りのツール名を拾う**（`OFFDESK_TOOL_MATCHER`）。
-      プラグイン経由だと `mcp__plugin_offdesk_offdesk__*` になるので
-      （2026-09-05 に cloud session で実測）、片方だけにすると
-      **経路を変えた瞬間に routine が静かに詰まる。**
-    */
     expect(groups.map((group) => group.matcher)).toEqual([
       OFFDESK_TOOL_MATCHER,
       undefined,
@@ -153,10 +168,6 @@ describe("hook の名前が hooks.json と対で維持されている", () => {
         for (const hook of group.hooks) {
           if (!hook.command.includes("offdesk-hook.sh")) continue;
           expect(hook.command).toMatch(/^bash /);
-          /*
-            **プラグインの中を指す。** `$CLAUDE_PROJECT_DIR`（対象リポジトリ）を
-            指したままだと、置かなくなったファイルを探して静かに何もしない。
-          */
           // biome-ignore lint/suspicious/noTemplateCurlyInString: hooks.json に書かれた文字列そのもの（評価するのではなく、あることを確かめている）。
           expect(hook.command).toContain("${CLAUDE_PLUGIN_ROOT}");
         }
@@ -318,12 +329,6 @@ describe("拾うのは直近の usage 行（末尾を絞っても変わらない
     });
   });
 
-  /*
-    **絞った窓の外にしか usage が無ければ、その 1 回は通報しない。**
-    これは意図した取引で、痛くない側に倒れている —— hook は次のツール呼び出しでも
-    走るし、残量は**出ないだけ**（嘘の値は出ない。要件 `F-D4`）。
-    窓（`TAIL_LINES`）は assistant の行が数行おきに来る前提より十分広い。
-  */
   it("窓の外にしか usage が無ければ、黙って何も送らない", () => {
     const staged = stage([
       JSON.stringify({ type: "user", text: RUN_KEY }),
@@ -360,37 +365,17 @@ describe("トークンを漏らさない（脅威 12）", () => {
   });
 });
 
-/*
-  **hooks.json に書いたコマンドが、実際に bash で走ること**（2026-09-06 に踏んだ）。
-
-  コマンドは JSON の文字列の中に埋めた**シェルの 1 行**で、`printf '…{"json"}…'` の
-  形をしている —— **単一引用符の中にアポストロフィが 1 つ混ざるだけで構文エラー**に
-  なる。英語に書き換えたときに `repository's` で実際に踏んだ。
-
-  **静かに壊れる。** hook が落ちてもセッションは進むので、症状は
-  「承認が出ない」「残量が出ない」だけ。JSON として妥当かを見るだけの検査では
-  通ってしまう（JSON は妥当だった）—— **走らせるしかない。**
-*/
 describe("hooks.json のコマンドが実際に走る", () => {
   const PLUGIN_ROOT = path.join(REPO_ROOT, "plugin/plugins/offdesk");
 
-  const run = (
-    command: string,
-  ): { readonly status: number; readonly stdout: string } => {
-    try {
-      const stdout = execFileSync("bash", ["-c", command], {
-        input: "{}",
-        encoding: "utf8",
-        env: {
-          PATH: process.env.PATH ?? "",
-          CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
-        },
-      });
-      return { status: 0, stdout };
-    } catch (error) {
-      return { status: (error as { status?: number }).status ?? 1, stdout: "" };
-    }
-  };
+  const run = (command: string): BashRun =>
+    bashRun(["-c", command], {
+      input: "{}",
+      env: {
+        PATH: process.env.PATH ?? "",
+        CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
+      },
+    });
 
   const commands = Object.entries(SETTINGS.hooks).flatMap(([event, groups]) =>
     groups.flatMap((group) =>
@@ -406,11 +391,6 @@ describe("hooks.json のコマンドが実際に走る", () => {
     expect(run(command).status).toBe(0);
   });
 
-  /*
-    **JSON を出すコマンドは、妥当な JSON を出す。** 出力が壊れていると
-    Claude Code はその hook の指示（承認・文脈の追加）を捨てる ——
-    **落ちないので、なお気付きにくい。**
-  */
   it.each(
     commands.filter(([, command]) => command.includes("hookSpecificOutput")),
   )("%s のコマンドが妥当な JSON を出す", (event, command) => {
@@ -421,7 +401,6 @@ describe("hooks.json のコマンドが実際に走る", () => {
     expect(parsed.hookSpecificOutput.hookEventName).toBe(event);
   });
 
-  /** `${CLAUDE_PLUGIN_ROOT}` が実際に展開されること（素の文字列が残らない）。 */
   it("SessionStart の文脈にプラグインの絶対パスが入る", () => {
     const command =
       commands.find(([event]) => event === "SessionStart")?.[1] ?? "";
