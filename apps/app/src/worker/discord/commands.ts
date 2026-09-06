@@ -1,6 +1,7 @@
 import { truncate } from "@offdesk/domain";
 
 const OPTION_STRING = 3;
+const OPTION_INTEGER = 4;
 const COMMAND_CHAT_INPUT = 1;
 
 const MAX_CHOICES = 25;
@@ -32,6 +33,26 @@ export const buildOffdeskCommand = (projectNames: readonly string[]) => ({
         name,
         value: name,
       })),
+    },
+    {
+      name: "issue",
+      type: OPTION_INTEGER,
+      description: truncate(
+        "対応する GitHub Issue の番号（ブランチが claude/issue-<番号> になる）",
+        MAX_DESCRIPTION,
+      ),
+      required: false,
+      min_value: 1,
+    },
+    {
+      name: "pr",
+      type: OPTION_INTEGER,
+      description: truncate(
+        "レビューする GitHub PR の番号（ブランチを作らず PR にコメントする）",
+        MAX_DESCRIPTION,
+      ),
+      required: false,
+      min_value: 1,
     },
   ],
 });

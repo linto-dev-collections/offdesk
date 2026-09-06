@@ -15,7 +15,8 @@ import {
   MAX_PLAN_FILE_BYTES,
   PLAN_WORK_DIR,
   PUBLISH_PLAN_SCRIPT,
-  ROUTINE_PROMPT,
+  PUBLISH_PLAN_SKILL,
+  PUBLISH_PLAN_SKILL_NAME,
   SERVER_INSTRUCTIONS,
 } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
@@ -28,28 +29,69 @@ const readSource = (relative: string): string =>
 const SCRIPT_PATH = path.join("plugin/plugins/offdesk", PUBLISH_PLAN_SCRIPT);
 const SCRIPT = readSource(SCRIPT_PATH);
 
+const SKILL_PATH = path.join(
+  "plugin/plugins/offdesk/skills",
+  PUBLISH_PLAN_SKILL_NAME,
+  "SKILL.md",
+);
+const SKILL = readSource(SKILL_PATH);
+
 describe("置き場が案内と一致する", () => {
   /** **`PUBLISH_PLAN_SCRIPT` が正本。** 文言に直書きすると片方だけ直る。 */
   it("plugin に同じパスでファイルがある", () => {
     expect(existsSync(path.join(REPO_ROOT, SCRIPT_PATH))).toBe(true);
   });
 
-  it.each([
-    ["SERVER_INSTRUCTIONS", SERVER_INSTRUCTIONS],
-    ["ROUTINE_PROMPT", ROUTINE_PROMPT],
-  ])("%s がそのパスを案内する", (_label, text) => {
-    expect(text).toContain(PUBLISH_PLAN_SCRIPT);
+  /*
+    **手順を持つのは skill だけ**（2026-09-06 に移した）。以前は同じ 700 字が
+    `SERVER_INSTRUCTIONS` と `ROUTINE_PROMPT` の両方に常駐していて、実際に要るのは
+    長い文書を渡すときだけだった。**プロンプト側は skill を名指しするだけにする。**
+  */
+  it("skill がそのパスを案内する", () => {
+    expect(SKILL).toContain(PUBLISH_PLAN_SCRIPT);
+  });
+
+  it("SERVER_INSTRUCTIONS が skill を名指しする", () => {
+    expect(SERVER_INSTRUCTIONS).toContain(PUBLISH_PLAN_SKILL);
+  });
+
+  /** **呼ぶ名前は frontmatter の `name` で決まる**（ディレクトリ名は当てにしない）。 */
+  it("skill の frontmatter が同じ名前を名乗る", () => {
+    expect(SKILL).toMatch(
+      new RegExp(`^name: ${PUBLISH_PLAN_SKILL_NAME}$`, "m"),
+    );
   });
 
   /*
     **本文をツールの引数に載せないことを、両方の文言が言っていること**
     （要件 `F-E3`）。ここが抜けると Claude が 200KB を再出力する。
   */
-  it.each([
-    ["SERVER_INSTRUCTIONS", SERVER_INSTRUCTIONS],
-    ["ROUTINE_PROMPT", ROUTINE_PROMPT],
-  ])("%s が「引数に載せない」と言っている", (_label, text) => {
-    expect(text).toContain("引数に載せないで");
+  it("SERVER_INSTRUCTIONS が「引数に載せない」と言っている", () => {
+    expect(SERVER_INSTRUCTIONS).toContain("引数に載せないで");
+  });
+
+  it("skill も「引数に載せない」と言っている", () => {
+    expect(SKILL).toContain("Never put the body in a tool argument");
+  });
+});
+
+describe("skill が routine で呼べる形になっている", () => {
+  /*
+    **routine では誰も `/` を打てない。** 依頼者は Discord にいてセッションの中には
+    いないので、モデルからの発火を止めると**誰にも呼べない skill**になる ——
+    症状は「長い計画が `ask_human` に貼られて 1 通に入らない」で、skill 側にエラーは出ない。
+  */
+  it("モデルからの発火を止めていない", () => {
+    expect(SKILL).not.toContain("disable-model-invocation");
+  });
+
+  /*
+    **サブエージェントの中では context 使用量が台帳に載らない** ——
+    `offdesk-hook.sh` が `agent_id` のある payload を捨てる（あちらの `[ -z "$agent" ]`）。
+    `context: fork` を書くと、計画を組み立てている間の消費がダッシュボードから消える。
+  */
+  it("subagent で走らせない", () => {
+    expect(SKILL).not.toContain("context: fork");
   });
 });
 

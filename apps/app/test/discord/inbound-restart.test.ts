@@ -21,19 +21,6 @@ import {
 } from "../support/outbound.ts";
 import { OWNER_ID } from "./support.ts";
 
-/*
-  起こし直し（要件 `F-C2` の 3 行目・`I-13`・計画 P4 §3-5 の 4-c）。
-
-  ここで固めたいのは 3 つ:
-
-    1. **前の run が `abandoned` になってから**新しい run が立つ（`batch` で 1 回）
-    2. **溜めていた分が 1 つに畳まれて渡る**
-    3. **起動に失敗したら印を立てない** —— 文が宙に浮かず、次の 1 行で拾い直せる
-
-  3 番目が計画 P4 §3-5 の「印を立てる順序」そのもの。**先に印を立てると、
-  起動に失敗した文がどこにも残らない。**
-*/
-
 const NEW_RUN_PATTERN = /^OFFDESK-[0-9a-f]{16}$/;
 
 let projectId: string;
@@ -83,7 +70,6 @@ const firedText = (): string => {
   return body.text ?? "";
 };
 
-/** 終わった run を 1 本立てて、溜まった文を先に積む。 */
 const seedFinished = async (
   queued: readonly string[] = [],
   status = "done",
@@ -122,18 +108,12 @@ describe("終わっている run のスレッドに書いたとき", () => {
     });
   });
 
-  /*
-    **生きている run は `abandoned` に畳まれる**（要件 `I-13`）。
-    `runs_live_thread_uidx` があるので、畳まずに立てると UNIQUE 違反で落ちる ——
-    **落ちる方が 2 本立つより安い**（要件 `F-C6`「起こしすぎは取り返せない」）。
-  */
   it("落ちている（生きているが古い）run は abandoned になる", async () => {
     const previous = await seedRun({
       projectId,
       status: "running",
       heldAt: Date.now() - 10_000,
     });
-    // 「作業中」の窓を過ぎさせる（`vitest.config.ts` で 2 秒に縮めてある）。
     await env.DB.prepare("UPDATE runs SET created_at = ? WHERE run_key = ?")
       .bind(Date.now() - 60_000, previous)
       .run();
@@ -147,7 +127,6 @@ describe("終わっている run のスレッドに書いたとき", () => {
     expect(rows[0]?.finished_at).not.toBeNull();
   });
 
-  /** **生きている run は 1 本だけ**（`I-13`）。畳んだ結果がこれ。 */
   it("同じスレッドに生きている run が 1 本しか残らない", async () => {
     await seedRun({
       projectId,
@@ -192,6 +171,54 @@ describe("終わっている run のスレッドに書いたとき", () => {
   });
 });
 
+describe("作業対象をスレッド名から拾い直す", () => {
+  const withThreadName = (name: string): void => {
+    stub = stubOutbound([
+      [
+        "discord.com",
+        (call) => {
+          if (
+            call.method === "GET" &&
+            call.url.endsWith(`/channels/${THREAD_ID}`)
+          ) {
+            return jsonResponse({ id: THREAD_ID, name });
+          }
+          return discordOk({ messageId: "888888888888888888" })(call);
+        },
+      ],
+      ["api.anthropic.com", fireOk],
+    ]);
+  };
+
+  it("Issue のスレッドなら同じブランチを指定し直す", async () => {
+    withThreadName("OFFDESK #123 READMEを直す");
+    await seedFinished();
+
+    await deliver();
+
+    expect(firedText()).toContain("claude/issue-123");
+  });
+
+  it("PR のスレッドならブランチを作らせない", async () => {
+    withThreadName("OFFDESK PR#45 レビューして");
+    await seedFinished();
+
+    await deliver();
+
+    expect(firedText()).toContain("Pull Request #45");
+    expect(firedText()).not.toContain("claude/");
+  });
+
+  it("名前を読めなくても起こし直しは通る", async () => {
+    await seedFinished();
+
+    const outcome = await deliver();
+
+    expect(outcome.runKey).toMatch(NEW_RUN_PATTERN);
+    expect(firedText()).toContain("対応する Issue や PR の指定はありません");
+  });
+});
+
 describe("溜めていた分も一緒に渡す", () => {
   it("3 行が 1 つに畳まれて渡る", async () => {
     await seedFinished(["1 行目", "2 行目", "3 行目"]);
@@ -202,7 +229,6 @@ describe("溜めていた分も一緒に渡す", () => {
     for (const body of ["1 行目", "2 行目", "3 行目", "4 行目"]) {
       expect(text).toContain(body);
     }
-    // **1 回の起動に 1 回だけ渡す**（4 本立てない）。
     expect(stub.callsTo("api.anthropic.com")).toHaveLength(1);
   });
 
@@ -224,11 +250,6 @@ describe("溜めていた分も一緒に渡す", () => {
     expect(firedText().split("\n")[0]).toBe(outcome.runKey);
   });
 
-  /*
-    **`taken_by_run_key` に入るのは実際に渡った run**（テーブル定義書 §4-6）。
-    届いた先（`run_key`）とは違う —— kanata はここを記録していなかったので
-    「あの文はどの実行に届いたのか」が後から辿れなかった。
-  */
   it("taken_by_run_key に新しい run が入る", async () => {
     const previous = await seedFinished(["前に書いた分"]);
 
@@ -243,7 +264,6 @@ describe("溜めていた分も一緒に渡す", () => {
     }
   });
 
-  /** **`taken_at` を立てるのと同じ場所で ✅ に付け替える**（要件 `I-3`・`F-C4`）。 */
   it("渡した全部の 👀 が ✅ に付け替わる", async () => {
     await seedFinished(["前に書いた分"]);
 
@@ -251,7 +271,6 @@ describe("溜めていた分も一緒に渡す", () => {
 
     expect(reactionCalls(MARK_HANDED)).toHaveLength(2);
     expect(reactionCalls(MARK_HANDED)[0]?.method).toBe("PUT");
-    // 付け替えなので 👀 を外す（今回の 1 通ぶんは付けてから外す）。
     expect(
       reactionCalls(MARK_SEEN).filter((call) => call.method === "DELETE"),
     ).toHaveLength(2);
@@ -265,11 +284,6 @@ describe("起動に失敗したとき（印を立てない）", () => {
     return runKey;
   };
 
-  /*
-    **ここが計画 P4 §3-5 の「印を立てる順序」。** 先に印を立てると、
-    起動に失敗した文がどこにも残らない —— 依頼者から見れば
-    「✅ が付いたのに何も起きない」。
-  */
   it("taken_at が立たない（文が宙に浮かない）", async () => {
     await seedFailing(["前に書いた分"]);
 
@@ -317,15 +331,6 @@ describe("起動に失敗したとき（印を立てない）", () => {
     expect(bodies.join("\n")).toContain("預かったまま");
   });
 
-  /*
-    **次の 1 行で拾い直せる。** 溜めた分が残っているので、直せば全部届く。
-
-    **このテストが穴を 1 つ見つけた**（2026-09-04）。起動に失敗すると `inbox` の
-    行は**前の run のまま**残り、新しく立った `failed` の run が「そのスレッドの
-    いちばん新しい run」になる —— `run_key` で `peek` していると
-    **前に書いた分が誰にも渡らなくなる。** 直したのは読む側
-    （`peekQueuedInThread` でスレッドごと引く。`inbox.run_key` は書き換えない）。
-  */
   it("直したあとの 1 行で全部渡る（前の run に残った分も拾う）", async () => {
     await seedFailing(["前に書いた分"]);
     await deliver({ messageId: "777777777777777771" });
@@ -343,10 +348,6 @@ describe("起動に失敗したとき（印を立てない）", () => {
 });
 
 describe("起こし直せない形", () => {
-  /*
-    **無効化されたプロジェクトでは起こし直さない**（要件 `F-H5`）。
-    溜めた文は残るので、有効に戻せば次の 1 行で渡る。
-  */
   it("プロジェクトが無効化されていたら run を立てない", async () => {
     await seedFinished();
     await env.DB.prepare("UPDATE projects SET disabled_at = ? WHERE id = ?")

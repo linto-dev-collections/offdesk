@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"The offdesk tools come from a plugin. The script that publishes a long implementation plan is at %s/scripts/publish-plan.sh, not in the repository under .claude/scripts/.\"}}' \"${CLAUDE_PLUGIN_ROOT}\""
+            "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"The offdesk tools come from a plugin installed at %s. To hand the requester a long document such as an implementation plan, follow the offdesk:publishing-plans skill instead of putting the body in a tool argument.\"}}' \"${CLAUDE_PLUGIN_ROOT}\""
           }
         ]
       }

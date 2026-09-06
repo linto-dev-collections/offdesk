@@ -6,8 +6,11 @@ import {
   markRunResumed,
 } from "@offdesk/db";
 import {
+  branchFor,
   isOwner,
+  isRunTargetProblem,
   parseAnswerCustomId,
+  parseRunTarget,
   projectNames,
   resolveProject,
 } from "@offdesk/domain";
@@ -71,6 +74,10 @@ const optionString = (
   return value === "" ? undefined : value;
 };
 
+/** 整数の option。**値の検査は `parseRunTarget` に任せる**（形の話は 1 か所に置く）。 */
+const optionRaw = (interaction: Interaction, name: string): unknown =>
+  interaction.data?.options?.find((o) => o.name === name)?.value;
+
 export const handleInteraction = async (
   interaction: Interaction,
   env: WorkerEnv,
@@ -120,6 +127,14 @@ const handleCommand = async (
     return ephemeral("指示（task）を入れてください。");
   }
 
+  const resolvedTarget = parseRunTarget({
+    issue: optionRaw(interaction, "issue"),
+    pr: optionRaw(interaction, "pr"),
+  });
+  if (isRunTargetProblem(resolvedTarget)) {
+    return ephemeral(resolvedTarget.problem);
+  }
+
   const projects = await listProjects(createDb(env.DB));
   const resolution = resolveProject(projects, {
     name: optionString(interaction, "project"),
@@ -166,6 +181,7 @@ const handleCommand = async (
         fireUrl: project.fireUrl,
         prompt,
         requesterDiscordUserId: requesterId,
+        target: resolvedTarget,
       });
 
       if (interactionToken === undefined) return;
@@ -180,10 +196,17 @@ const handleCommand = async (
           ? "スレッドを作れなかったので、チャンネルに出しました。"
           : `スレッド: <#${outcome.threadId}>`;
 
+      /*
+        **ブランチ名が決まるのは Issue のときだけ**（PR の run は作らない・
+        指定なしの run は名前をセッションが決める）。決まっているときだけ先に言う。
+      */
+      const branch = branchFor(resolvedTarget);
+      const onBranch = branch === null ? "" : `\nブランチ: \`${branch}\``;
+
       await editOriginalResponse(discordRestConfig(env), interactionToken, {
         content:
           outcome.failureReason === null
-            ? `起動しました（${outcome.runKey}）。${where}`
+            ? `起動しました（${outcome.runKey}）。${where}${onBranch}`
             : `起動できませんでした（${outcome.runKey}）: ${outcome.failureReason}`,
         flags: EPHEMERAL,
       });

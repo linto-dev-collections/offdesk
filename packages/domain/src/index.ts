@@ -135,6 +135,8 @@ export {
   OFFDESK_TOOLS,
   PLAN_WORK_DIR,
   PUBLISH_PLAN_SCRIPT,
+  PUBLISH_PLAN_SKILL,
+  PUBLISH_PLAN_SKILL_NAME,
   RESEND_QUESTION,
   ROUTINE_PROMPT,
   SERVER_INSTRUCTIONS,
@@ -156,5 +158,22 @@ export {
   bearerMatches,
   constantTimeEqual,
 } from "./secret/constant-time-equal.ts";
+export type {
+  RunTarget,
+  RunTargetProblem,
+  RunTargetResolution,
+} from "./target.ts";
+export {
+  BRANCH_PREFIX,
+  branchFor,
+  branchSuffix,
+  isRunTargetProblem,
+  NO_TARGET,
+  parseRunTarget,
+  parseThreadPrefix,
+  targetLabel,
+  targetUrl,
+  threadPrefix,
+} from "./target.ts";
 export type { Clock } from "./time.ts";
 export { elapsedMs, hasElapsed } from "./time.ts";

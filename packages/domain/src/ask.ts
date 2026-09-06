@@ -4,6 +4,7 @@ import {
   DISCORD_BUTTONS_PER_ROW,
   DISCORD_MESSAGE_MAX,
 } from "./discord/limits.ts";
+import { PUBLISH_PLAN_SKILL } from "./prompt.ts";
 
 export const MAX_ASK_OPTIONS = Math.min(
   20,
@@ -33,7 +34,7 @@ export const validateAsk = (input: {
   if (question === "") return { problem: "question が空です。" };
   if (question.length > MAX_ASK_QUESTION_LENGTH) {
     return {
-      problem: `question が長すぎます（${question.length} 字 / 上限 ${MAX_ASK_QUESTION_LENGTH} 字）。要点だけを渡してください。`,
+      problem: `question が長すぎます（${question.length} 字 / 上限 ${MAX_ASK_QUESTION_LENGTH} 字）。要点だけを渡し、長い文書は ${PUBLISH_PLAN_SKILL} の skill で URL にしてください。`,
     };
   }
 

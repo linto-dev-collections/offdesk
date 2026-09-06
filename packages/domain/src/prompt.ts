@@ -1,57 +1,70 @@
-export const buildFireText = (runKey: string, prompt: string): string =>
-  [runKey, "", "## 指示", prompt].join("\n");
+import type { RunTarget } from "./target.ts";
+import { BRANCH_PREFIX, branchFor, branchSuffix } from "./target.ts";
+
+const targetSection = (
+  target: RunTarget,
+  runKey: string,
+): readonly string[] => {
+  if (target.kind === "issue") {
+    const branch = branchFor(target);
+    return [
+      "## 作業対象",
+      "",
+      `**GitHub Issue #${target.number}** です。`,
+      "",
+      `- **まず \`gh issue view ${target.number} --comments\` で中身を読んでから始めてください。**`,
+      `- **ブランチは \`${branch}\`。** 既にあれば checkout して続きを push します（作り直さない）。`,
+      `- PR は 1 本に保ちます。このブランチの PR が既にあればそこへ push し、無ければ作って **本文に \`Closes #${target.number}\`** を入れてください。`,
+      "",
+    ];
+  }
+
+  if (target.kind === "pull") {
+    return [
+      "## 作業対象",
+      "",
+      `**GitHub Pull Request #${target.number}** です。`,
+      "",
+      `- **まず \`gh pr view ${target.number} --comments\` と \`gh pr diff ${target.number}\` で中身を読んでください。**`,
+      "- **ブランチを作らないでください。** 指摘は `gh pr review` / `gh pr comment` で PR に直接書きます。",
+      "- **Discord に指摘の本文を書かないでください** —— 返すのは PR の URL 1 行だけです。",
+      `- 直す必要が出たら **#${target.number} の head ブランチに checkout して push** します。拒否されたら勝手に別ブランチへ逃げず、\`ask_human\` で相談してください。`,
+      "",
+    ];
+  }
+
+  return [
+    "## 作業対象",
+    "",
+    "対応する Issue や PR の指定はありません。",
+    "",
+    "- **コードを変更しないなら、ブランチも PR も作らないでください。**",
+    `- 変更するときのブランチは \`${BRANCH_PREFIX}<内容が分かる短い名前>-${branchSuffix(runKey)}\` です（末尾は変えないでください。GitHub の側からこの run を引くための印です）。`,
+    "",
+  ];
+};
+
+export const buildFireText = (
+  runKey: string,
+  prompt: string,
+  target: RunTarget,
+): string =>
+  [runKey, "", ...targetSection(target, runKey), "## 指示", prompt].join("\n");
 
 export const MAX_FIRE_TEXT_LENGTH = 65_536;
 
 export const RESEND_QUESTION = "(再送)";
 
-/**
- * 計画を置くスクリプト。**プラグインの中の相対パス**（2026-09-06 に移した）。
- *
- * 以前は `.claude/scripts/publish-plan.sh`（対象リポジトリからの相対）だったが、
- * **配布物がプラグインに移って対象リポジトリには 1 バイトも置かなくなった**ので、
- * この文字列だけでは Claude が辿り着けない —— 絶対パスは環境ごとに違う
- * （`~/.claude/plugins/…`）。
- *
- * **`SessionStart` の hook が絶対パスを文脈へ入れる**（`plugin/plugins/offdesk/
- * hooks/hooks.json`）。プロンプトはそれを読めと言うだけで、パスを固定しない。
- */
 export const PUBLISH_PLAN_SCRIPT = "scripts/publish-plan.sh";
 
-/**
- * 計画を組み立てる作業領域（要件 `F-E1`）。
- *
- * **リポジトリの外に置く。** 以前は `plans/` に書かせていたが、それだと
- * **対象リポジトリの `.gitignore` に `/plans/` を足してもらう**必要があった
- * （足し忘れると使い捨ての計画が commit に混ざり、アンカーを落とすと
- * `src/plans/` のような同名ディレクトリまで消える —— offdesk 自身が踏んだ）。
- *
- * 置き場を作業領域へ移すと、**対象リポジトリに要求するものが 1 つ減る。**
- * `publish-plan.sh` は置き場を引数で受けるだけなので、スクリプトは変わらない。
- *
- * 正本は R2 に置いた方（`/p/<plan_id>/`）で、ここはそこへ送る前の下書き。
- */
+export const PUBLISH_PLAN_SKILL_NAME = "publishing-plans";
+
+export const PUBLISH_PLAN_SKILL = `offdesk:${PUBLISH_PLAN_SKILL_NAME}`;
+
 export const PLAN_WORK_DIR = "/tmp/offdesk-plans";
 
-/** offdesk が出すツール。**この 3 つだけ**（`mcp/server.ts` の `TOOLS` と対）。 */
 export const OFFDESK_TOOLS = ["ask_human", "ask_wait", "report"] as const;
 
-/**
- * ツール一覧に出る名前の形（承認 hook の matcher）。
- *
- * **2 通りある**（2026-09-05 に cloud session で実測）:
- *
- *     mcp__offdesk__ask_human                  repo の .mcp.json 経由
- *     mcp__plugin_offdesk_offdesk__ask_human   プラグイン経由
- *
- * プラグインが出す MCP サーバーは `plugin_<プラグイン名>_<サーバー名>` で
- * 名前空間が付く（衝突を避けるため）。**サーバー名を変えても消せない。**
- *
- * **両方を拾う。** 承認する人がいない routine では、この hook が
- * `permissionDecision: "allow"` を返さないと `ask_human` の呼び出しで止まる ——
- * **症状は「Discord が無音」で、エラーは出ない。** 片方だけにすると、
- * 経路を変えた瞬間に静かに詰まる。
- */
 export const OFFDESK_TOOL_MATCHER = "mcp__(plugin_offdesk_)?offdesk__.*";
 
 export const isResendQuestion = (question: unknown): boolean =>
@@ -60,14 +73,9 @@ export const isResendQuestion = (question: unknown): boolean =>
 export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との唯一の口です。
 
 - \`run_key\` は指示の 1 行目にある \`OFFDESK-\` で始まる値をそのまま渡します。
-- 判断が要ること（仕様の解釈・方針の選択・破壊的な操作の可否）は勝手に決めず、
-  \`ask_human\` を呼んで待ってください。答えが返るまでこの呼び出しは戻りません。
-  **待っている間トークンは消費しません。待つことを惜しまないでください。**
-- **選択肢を挙げられるなら \`options\` を渡してください（1〜20 個）。** ボタンになるので
-  依頼者は 1 回押すだけで答えられます。挙げられない問い（「どういう方針にする？」）は
-  \`options\` 無しでよく、依頼者はスレッドに直接書いて答えます。
-- 同じ内容を \`report\` と \`ask_human\` に分けて 2 回言わないでください（2 通届きます）。
-  **「やったこと」と「次はどうするか」は 1 回の \`ask_human\` にまとめてください。**
+- 判断が要ること（仕様の解釈・方針の選択・破壊的な操作の可否）は勝手に決めず、\`ask_human\` を呼んで待ってください。答えが返るまでこの呼び出しは戻りません。**待っている間トークンは消費しません。待つことを惜しまないでください。**
+- **選択肢を挙げられるなら \`options\` を渡してください（1〜20 個）。** ボタンになるので依頼者は 1 回押すだけで答えられます。挙げられない問い（「どういう方針にする？」）は \`options\` 無しでよく、依頼者はスレッドに直接書いて答えます。
+- 同じ内容を \`report\` と \`ask_human\` に分けて 2 回言わないでください（2 通届きます）。**「やったこと」と「次はどうするか」は 1 回の \`ask_human\` にまとめてください。**
 
 ## 3 つのツール
 
@@ -78,128 +86,59 @@ export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との
 | \`report\` | 作業中の進捗（\`progress\`）／進めなくなった（\`blocked\`）／一区切り（\`done\`） |
 
 **\`report\` は待ちません**（すぐ戻ります）。答えが要るなら \`ask_human\` です。
-**\`report(done)\` を呼んでも会話は終わりません** —— 終わるのは依頼者が「おわり」と
-言ったときだけです。
+**\`report(done)\` を呼んでも会話は終わりません** —— 終わるのは依頼者が「おわり」と言ったときだけです。
 
 ## 待ちが中断される形は 3 つあり、最初の 2 つは失敗ではありません
 
-- \`status: "pending"\` … 握りの上限に達しただけ。**同じ \`ask_id\` で \`ask_wait\` を
-  呼び直してください。** 依頼者はまだ答えていません。
-- **接続エラーで落ちた**（\`transport dropped\` など。\`ask_id\` が手元に無い）… 同じ
-  \`run_key\` で \`ask_human\` を呼び直してください。**\`question\` は \`${RESEND_QUESTION}\` の
-  1 語でよく、\`options\` は要りません** —— サーバーが直前の問いを覚えていて、
-  出したままの問いを握り直すか、切れている間に届いた答えを返します。
-  **Discord に同じ質問が 2 回出ることはありません。**
-- \`status: "closed"\` … その run はもう誰も見ていません。
-  **これ以上 offdesk のツールを呼ばず、作業を終えてください。** 返しても誰にも届きません。
+- \`status: "pending"\` … 握りの上限に達しただけ。**同じ \`ask_id\` で \`ask_wait\` を呼び直してください。** 依頼者はまだ答えていません。
+- **接続エラーで落ちた**（\`transport dropped\` など。\`ask_id\` が手元に無い）… 同じ \`run_key\` で \`ask_human\` を呼び直してください。**\`question\` は \`${RESEND_QUESTION}\` の 1 語でよく、\`options\` は要りません** —— サーバーが直前の問いを覚えていて、出したままの問いを握り直すか、切れている間に届いた答えを返します。**Discord に同じ質問が 2 回出ることはありません。**
+- \`status: "closed"\` … その run はもう誰も見ていません。**これ以上 offdesk のツールを呼ばず、作業を終えてください。** 返しても誰にも届きません。
 
 ## 依頼者はスレッドに素で書いて話しかけてきます
 
-作業中に依頼者がスレッドへ書いた文は預かってあり、**次に \`ask_human\` を呼んだ時点で
-渡します**（\`status: "answered"\` ＋ \`note\` 付き）。**そのとき質問は出していません**
-—— 依頼者は先に喋っているので、聞き返す前にその内容を読んでください。
+作業中に依頼者がスレッドへ書いた文は預かってあり、**次に \`ask_human\` を呼んだ時点で渡します**（\`status: "answered"\` ＋ \`note\` 付き）。**そのとき質問は出していません** —— 依頼者は先に喋っているので、聞き返す前にその内容を読んでください。
 まだ確認が要るなら、それを踏まえてもう一度 \`ask_human\` を呼んでください。
 
-問いを出して待っている間に書かれた文は、そのまま**その問いへの回答**になります
-（ボタンを押すのと同じです）。
+問いを出して待っている間に書かれた文は、そのまま**その問いへの回答**になります（ボタンを押すのと同じです）。
 
 ## 長い文書は URL にして渡します
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-**セッションの始めに \`publish-plan.sh\` の場所が知らされています**（\`${PUBLISH_PLAN_SCRIPT}\`
-で終わる絶対パス）。\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
+**\`${PUBLISH_PLAN_SKILL}\` の skill に手順があります。それに従ってください。**
 
-    <知らされたパス> <run_key> ${PLAN_WORK_DIR}/<名前>
+- **本文をツールの引数に載せないでください。** 計画は 200KB を超えるので、そのまま再出力することになります。渡すのは skill が返す **URL の 1 行だけ**です。
 
-を実行してください。**依頼者が読む URL を 1 行だけ返します。**
-その 1 行を \`ask_human\` の \`question\` に貼ってください。
-
-- **本文をツールの引数に載せないでください。** 計画は 200KB を超えるので、
-  そのまま再出力することになります。
-- **同じ名前で出し直せば同じ URL に上書きされます。** 貼り直しは要りません。
-- リンクには期限があります（7 日）。切れたら出し直してください。
-
-\`run_key\` が見つからないと言われたら、台帳にその run がありません。
-**ただし MCP の接続そのものは通っています**（このエラーはサーバーが返しています）。
+\`run_key\` が見つからないと言われたら、台帳にその run がありません。**ただし MCP の接続そのものは通っています**（このエラーはサーバーが返しています）。
 指示の 1 行目の値をそのまま渡しているか確認してください。
 `;
 
-export const ROUTINE_PROMPT = `あなたは routine から起動された Claude Code のクラウドセッションです。
+export const ROUTINE_PROMPT = `あなたは offdesk（Discord）から起動された Claude Code のクラウドセッションです。
 
 ## この実行でやること
 
 \`<routine-fire-payload>\` ブロックの中に、依頼者本人が書いた指示が入っています。
 **そこに書かれた指示を、この実行の課題として実行してください。**
 
-payload の 1 行目は \`OFFDESK-\` で始まる実行キー（run_key）です。
-この値は offdesk の台帳と転写ログを突き合わせる印なので、**書き換えないでください。**
-offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` に渡します。
+payload の 1 行目は \`OFFDESK-\` で始まる実行キー（run_key）です。台帳と転写ログを突き合わせる印なので、**書き換えないでください。**
+offdesk のツールにはこの値をそのまま渡します。
 
-## offdesk のツールは 3 つです
+## offdesk が依頼者との唯一の口です
 
-\`${OFFDESK_TOOLS.join("` / `")}\` の 3 つだけです。
+ツール一覧に \`${OFFDESK_TOOLS.join("` / `")}\` の 3 つがあるはずです。
+**\`mcp__\` で始まる長い名前が付きます**（\`mcp__offdesk__ask_human\` のこともあれば \`mcp__plugin_offdesk_offdesk__ask_human\` のこともあります）。接頭辞は繋ぎ方で変わるので、**一覧に出ている名前をそのまま使ってください。**
 
-**ツール一覧では \`mcp__\` で始まる長い名前が付きます。** 接頭辞は繋ぎ方で変わるので
-（\`mcp__offdesk__ask_human\` のこともあれば \`mcp__plugin_offdesk_offdesk__ask_human\`
-のこともあります）、**一覧に出ている名前をそのまま使ってください。**
-一覧にどれも無ければ offdesk に繋がっていないので、Discord へは何も届きません
-—— そのときは無理に進めず、繋がっていないことを PR や通知で伝えてください。
+**3 つの使い方はサーバーが \`initialize\` で説明します。そちらに従ってください**（この文書と食い違ったら、サーバーの言うことが正しい）。
 
-## 人に聞く
+一覧にどれも無ければ offdesk に繋がっておらず、**Discord へは何も届きません。** 無理に進めず、繋がっていないことを PR か通知で伝えて終えてください。
 
-判断が要ることが出たら、**勝手に決めずに \`ask_human\` を呼んでください。**
-依頼者は Discord のスレッドにいます。答えが返るまでその呼び出しは戻りませんが、
-**待っている間トークンは消費しません。待つことを惜しまないでください。**
+## 勝手に決めない・勝手に終わらない
 
-- **選択肢を挙げられるなら \`options\` を渡してください（1〜20 個）。** ボタンになるので
-  1 回押すだけで答えられます。挙げられない問いは \`options\` 無しでよく、
-  依頼者はスレッドに直接書いて答えます。
-- **「やったこと」と「次はどうするか」を 1 回の \`ask_human\` にまとめてください。**
-  報告と質問を別々に送ると、依頼者には同じ話が 2 通届きます。
-- 接続エラーで落ちて \`ask_id\` が手元に無いときは、同じ \`run_key\` で \`ask_human\` を
-  呼び直してください。**\`question\` は \`${RESEND_QUESTION}\` の 1 語でよく**、
-  サーバーが直前の問いを覚えていて、出したままの問いを握り直すか、
-  切れている間に届いた答えを返します。
-- サーバーが返す説明（\`initialize\` の instructions・各ツールのエラー文）が
-  **この文書より新しい**ことがあります。食い違ったら**サーバーの言うことに従ってください。**
+判断が要ること（仕様の解釈・方針の選択・破壊的な操作の可否）は勝手に決めず、\`ask_human\` を呼んで待ってください。**待っている間トークンは消費しません。待つことを惜しまないでください。**
 
-## 依頼者はスレッドに素で書いて話しかけてきます
-
-依頼者はボタンを押す代わりに、スレッドへ直接書いて答えることがあります。
-**作業中に書かれた文は預かってあり、次に \`ask_human\` を呼んだ時点で渡ります**
-（そのとき質問は出していません）。渡ってきた内容を読んでから、
-必要ならもう一度 \`ask_human\` を呼んでください。
-
-## 進捗を伝える
-
-長い作業の途中では \`report\` で依頼者に見せてください。
-
-- \`progress\` … 作業中の報告。**答えを待ちません**
-- \`blocked\` … 自分では進めなくなった
-- \`done\` … 一区切り着いた。**これを呼んでも会話は終わりません**
-
-**\`report\` と \`ask_human\` に同じ内容を分けて出さないでください。** 依頼者には
-2 通届きます。答えや次の指示が要るなら、やったことも含めて \`ask_human\` 1 回にします。
-
-## 作業を終える条件
-
-**作業が一段落しても、この実行を終わらせないでください。**
-\`ask_human\` で「次はどうしますか」と聞いて待ってください。
-**終わるのは依頼者が「おわり」と言ったときだけです。**
+**作業が一段落しても、この実行を終わらせないでください。** \`ask_human\` で「次はどうしますか」と聞いて待ちます。**終わるのは依頼者が「おわり」と言ったときだけです。**
 
 ## 成果物
 
-コードを変更したら \`claude/\` で始まるブランチに push し、PR を作ってください。
-PR の URL は \`ask_human\` の \`question\` に含めて依頼者へ伝えてください。
-
-実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-**セッションの始めに \`publish-plan.sh\` の場所が知らされています**（\`${PUBLISH_PLAN_SCRIPT}\`
-で終わる絶対パス）。\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
-
-    <知らされたパス> <run_key> ${PLAN_WORK_DIR}/<名前>
-
-を実行し、**返ってきた URL の 1 行だけ**を \`ask_human\` の \`question\` に貼ってください。
-**本文をツールの引数に載せないでください**（計画は 200KB を超え、そのまま再出力することになります）。
-**リポジトリの中に計画を置かないでください** —— 上のパスは作業領域で、commit の対象になりません。
-場所が知らされていなければ、要点だけを \`ask_human\` で伝えてください。
+**payload に作業対象（Issue や PR）の指定があれば、そこに書かれた規則に従ってください。**
+指定が無ければ、コードを変更したときだけ \`claude/\` で始まるブランチに push して PR を作り、その URL を \`ask_human\` の \`question\` に含めて伝えてください。
 `;

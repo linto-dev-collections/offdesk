@@ -6,6 +6,8 @@ import {
   DISCORD_MESSAGE_MAX,
   isStateChange,
   type ReportKind,
+  targetLabel,
+  targetUrl,
   truncate,
 } from "@offdesk/domain";
 import type { StartedAnnouncement } from "@offdesk/usecase";
@@ -15,24 +17,51 @@ const COLOR_START = 0x5865f2;
 
 export const EPHEMERAL = 64;
 
+const targetField = (
+  announcement: StartedAnnouncement,
+): { name: string; value: string } | null => {
+  const label = targetLabel(announcement.target);
+  if (label === null) return null;
+
+  const url = targetUrl(announcement.target, announcement.repoUrl);
+  return {
+    name: "対象",
+    value: truncate(
+      url === null ? label : `[${label}](${url})`,
+      DISCORD_EMBED_FIELD_VALUE_MAX,
+    ),
+  };
+};
+
 export const startedMessage = (
   announcement: StartedAnnouncement,
-): MessagePayload => ({
-  embeds: [
-    {
-      color: COLOR_START,
-      title: `起動しました: ${announcement.projectName}`,
-      description: truncate(announcement.prompt, DISCORD_EMBED_DESCRIPTION_MAX),
-      fields: [
-        {
-          name: "リポジトリ",
-          value: truncate(announcement.repoUrl, DISCORD_EMBED_FIELD_VALUE_MAX),
-        },
-        { name: "run", value: announcement.runKey },
-      ],
-    },
-  ],
-});
+): MessagePayload => {
+  const target = targetField(announcement);
+
+  return {
+    embeds: [
+      {
+        color: COLOR_START,
+        title: `起動しました: ${announcement.projectName}`,
+        description: truncate(
+          announcement.prompt,
+          DISCORD_EMBED_DESCRIPTION_MAX,
+        ),
+        fields: [
+          {
+            name: "リポジトリ",
+            value: truncate(
+              announcement.repoUrl,
+              DISCORD_EMBED_FIELD_VALUE_MAX,
+            ),
+          },
+          ...(target === null ? [] : [target]),
+          { name: "run", value: announcement.runKey },
+        ],
+      },
+    ],
+  };
+};
 
 export const noticeMessage = (text: string): MessagePayload => ({
   content: truncate(text, DISCORD_MESSAGE_MAX),

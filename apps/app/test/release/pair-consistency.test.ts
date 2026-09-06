@@ -3,9 +3,9 @@ import path from "node:path";
 import {
   ASK_HOLD_MS,
   PLAN_WORK_DIR,
+  PUBLISH_PLAN_SKILL_NAME,
   RECOMMENDED_CLIENT_IDLE_TIMEOUT_MS,
   ROUTINE_PROMPT,
-  SERVER_INSTRUCTIONS,
 } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 
@@ -16,6 +16,7 @@ const readSource = (relative: string): string =>
 
 const OPERATIONS = readSource("OPERATIONS.md");
 const PLUGIN_DIR = "plugin/plugins/offdesk";
+const PLAN_SKILL = `skills/${PUBLISH_PLAN_SKILL_NAME}/SKILL.md`;
 const WORKER_ENV = readSource("apps/app/src/worker/env.ts");
 
 /** `const NAME ... = [ ... ]` の中の文字列リテラル（`env-required.test.ts` と同じ形）。 */
@@ -119,24 +120,30 @@ describe("対象リポジトリに .gitignore を要求しない（2026-09-05 �
     expect(PLAN_WORK_DIR.startsWith("/")).toBe(true);
   });
 
-  it.each([
-    ["ROUTINE_PROMPT", ROUTINE_PROMPT],
-    ["SERVER_INSTRUCTIONS", SERVER_INSTRUCTIONS],
-  ])("%s が作業領域を案内する", (_label, text) => {
-    expect(text).toContain(PLAN_WORK_DIR);
+  /** 案内するのは skill 1 か所（`plugin/` は英語だけなので目印も `<name>`）。 */
+  it("skill が作業領域を案内する", () => {
+    expect(readSource(`${PLUGIN_DIR}/${PLAN_SKILL}`)).toContain(PLAN_WORK_DIR);
   });
 
   const occurrences = (text: string, needle: string): number =>
     text.split(needle).length - 1;
 
-  it.each([
-    ["ROUTINE_PROMPT", ROUTINE_PROMPT],
-    ["SERVER_INSTRUCTIONS", SERVER_INSTRUCTIONS],
-  ])("%s の置き場が全部作業領域の下にある", (_label, text) => {
-    expect(occurrences(text, "plans/<名前>")).toBe(
-      occurrences(text, `${PLAN_WORK_DIR}/<名前>`),
+  it("skill の置き場が全部作業領域の下にある", () => {
+    const skill = readSource(`${PLUGIN_DIR}/${PLAN_SKILL}`);
+
+    expect(occurrences(skill, "plans/<name>")).toBe(
+      occurrences(skill, `${PLAN_WORK_DIR}/<name>`),
     );
-    expect(occurrences(text, "plans/<名前>")).toBeGreaterThan(0);
+    expect(occurrences(skill, "plans/<name>")).toBeGreaterThan(0);
+  });
+
+  /*
+    **手順を routine のプロンプトへ書き戻さない**（2026-09-06）。あちらは
+    **人が routine の数だけ貼り直す唯一の面**で、書き戻すと同じ話が 2 か所に増え、
+    貼り直しを忘れた routine だけが古い規則で走り続ける。
+  */
+  it("ROUTINE_PROMPT が計画の手順を持たない", () => {
+    expect(ROUTINE_PROMPT).not.toContain(PLAN_WORK_DIR);
   });
 
   it("plugin に .gitignore が無い", () => {
@@ -155,6 +162,7 @@ describe("配るテンプレートが揃っている（§9-1）", () => {
     "hooks/hooks.json",
     "hooks/offdesk-hook.sh",
     "scripts/publish-plan.sh",
+    PLAN_SKILL,
   ])("plugin に %s がある", (file) => {
     expect(() => readSource(`${PLUGIN_DIR}/${file}`)).not.toThrow();
   });

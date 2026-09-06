@@ -1,7 +1,7 @@
 {
   "name": "offdesk",
-  "description": "MCP server and hooks for driving Claude Code from Discord.",
-  "version": "0.2.0",
+  "description": "MCP server, hooks and skills for driving Claude Code from Discord.",
+  "version": "0.3.0",
   "author": {
     "name": "Naoki Yazawa"
   }

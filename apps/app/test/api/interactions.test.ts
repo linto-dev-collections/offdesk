@@ -273,6 +273,22 @@ describe("入力の検査", () => {
     await settle();
   });
 
+  /*
+    **どちらか片方を黙って優先しない。** 打ち間違いをそのまま通すと、
+    「別の対象で走った run」になって初めて分かる。
+  */
+  it("issue と pr の両方は断る", async () => {
+    await seedTwoProjects();
+
+    const { response, settle } = await send(
+      commandInteraction({ task: "READMEを直す", issue: 123, pr: 45 }),
+    );
+
+    const body = (await response.json()) as { data: { content: string } };
+    expect(body.data.content).toContain("どちらか 1 つ");
+    await settle();
+  });
+
   it("プロジェクトが 0 件なら投入を案内する", async () => {
     const { response, settle } = await send(
       commandInteraction({ task: "READMEを直す" }),

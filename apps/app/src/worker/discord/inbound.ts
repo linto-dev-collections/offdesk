@@ -27,6 +27,7 @@ import {
   type InboundMessage,
   isOwner,
   newRunKey,
+  parseThreadPrefix,
   resolveInboundWindows,
 } from "@offdesk/domain";
 import type { WorkerEnv } from "../env.ts";
@@ -34,19 +35,7 @@ import { outboundFetch } from "../outbound.ts";
 import { discordRestConfig } from "../session/launch.ts";
 import { askAnsweredMessage, noticeMessage } from "./components.ts";
 import { markHandedOff, markSeen } from "./marks.ts";
-import { editMessage, postMessage } from "./rest.ts";
-
-/*
-  スレッドに素で書いた文を Claude への発言にする（要件 `F-C1`〜`F-C6`・計画 P4 §3-5）。
-
-  **判定は `decideInbound`（純粋関数）が持つ。** ここがやるのは、その判定に要る
-  ものを D1 から集めて、決まった扱いを台帳と Discord に反映することだけ ——
-  4 通りの分岐そのものを DO にも Gateway にも書かない（テストできなくなる）。
-
-  **DO からも呼ばれる。** だから `env` を受けて自分で D1 と Discord を組む。
-
-  **本文をログに出さない**（脅威 12）。出すのは `message_id` と判定結果だけ。
-*/
+import { editMessage, fetchChannelName, postMessage } from "./rest.ts";
 
 /** 何が起きたか。**DO のログとテストが読む**（本文は含めない）。 */
 export type InboundOutcome = Readonly<{
@@ -63,20 +52,8 @@ export const applyInbound = async (
   env: WorkerEnv,
   message: InboundMessage,
 ): Promise<InboundOutcome> => {
-  /*
-    plans/security.md 脅威 14。**bot 自身の発言を必ず落とす** ——
-    落とさないと自分の `report` が自分の入力になって無限ループになる。
-    `isOwner` でも落ちるが（bot の id は持ち主の id ではない）、
-    **理由が違うものを 1 つの判定にまとめない。**
-  */
   if (message.authorIsBot) return ignored();
 
-  /*
-    **素の文にも持ち主判定**（脅威 14）。interaction 経路と同じ
-    `packages/domain/src/owner.ts` の 1 関数を通す。
-    **何も出さない** —— 他の人の雑談に bot が反応して回るのを避ける
-    （interaction は ephemeral で本人にだけ返せるが、素の文にその手段が無い）。
-  */
   if (!isOwner(env.OWNER_DISCORD_USER_ID, message.authorId)) return ignored();
 
   const body = message.content.trim();
@@ -85,20 +62,9 @@ export const applyInbound = async (
 
   const db = createDb(env.DB);
 
-  /*
-    **親チャンネルの発言は拾わない**（要件 `F-C3`）。`runs.thread_id` を引くので、
-    親チャンネル id では当たらない —— 要件 `I-4` が「スレッドを作れなかった run の
-    `thread_id` は NULL」と定めているのがここを成り立たせている
-    （チャンネル id を入れていたら、そのチャンネルの雑談が丸ごと Claude へ流れる）。
-  */
   const run = await findRunByThread(db, message.channelId);
   if (run === null) return ignored();
 
-  /*
-    **同じメッセージを 2 回扱わない。** Gateway は再接続時にイベントを再送しうる
-    （resume の仕様）。溜める側は `inbox_message_uidx` が止めるが、
-    **回答として使った文は `inbox` に入らない**ので、こちらは台帳を引いて確かめる。
-  */
   const answered = await findAskByAnswerMessage(db, message.messageId);
   if (answered !== null) {
     return { decision: "duplicate", runKey: run.runKey };
@@ -332,6 +298,16 @@ const applyRestart = async (
     Date.now(),
   );
 
+  /*
+    **作業対象はスレッド名から拾い直す**（`parseThreadPrefix`）。起こし直しは
+    まっさらな cloud session なので、拾わないと Issue の run が
+    `claude/issue-<番号>` から別のブランチへ逃げ、PR が 2 本に割れる。
+    読めなければ対象なしで起こす（`fetchChannelName` が null を返す）。
+  */
+  const target = parseThreadPrefix(
+    (await fetchChannelName(rest, thread)) ?? "",
+  );
+
   const fired = await fireRoutine(
     {
       fetch: outboundFetch,
@@ -341,7 +317,7 @@ const applyRestart = async (
     {
       projectId: project.id,
       fireUrl: project.fireUrl,
-      text: buildFireText(nextRunKey, prompt),
+      text: buildFireText(nextRunKey, prompt, target),
     },
   );
 

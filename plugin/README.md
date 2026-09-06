@@ -11,7 +11,7 @@ In the cloud environment's **Setup script** field:
 
 ```bash
 #!/bin/bash
-# rev: 2   <- bump after changing the plugin, so the cached environment is rebuilt
+# rev: 3   <- bump after changing the plugin, so the cached environment is rebuilt
 set -u
 for home in /home/user /root; do
   [ -d "$home" ] || continue
@@ -32,9 +32,10 @@ The environment also needs `OFFDESK_URL`, `OFFDESK_TOKEN`, the allowed domains, 
 | | |
 | --- | --- |
 | `.mcp.json` | HTTP MCP server at `${OFFDESK_URL}/mcp`, bearer `${OFFDESK_TOKEN}` |
-| `hooks/hooks.json` | Approval, context and session-end reporting, and the location of `publish-plan.sh` |
+| `hooks/hooks.json` | Approval, context and session-end reporting, and where this plugin is installed |
 | `hooks/offdesk-hook.sh` | Posts the run key and context usage to `/hooks/*` |
 | `scripts/publish-plan.sh` | Uploads a long implementation plan and prints its URL |
+| `skills/publishing-plans/SKILL.md` | How to hand the requester a long document. **Loaded only when it is needed** |
 
 ## Tool name prefixes differ by route
 

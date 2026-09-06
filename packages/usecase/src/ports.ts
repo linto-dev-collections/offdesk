@@ -1,4 +1,4 @@
-import type { FireOutcome } from "@offdesk/domain";
+import type { FireOutcome, RunTarget } from "@offdesk/domain";
 
 /*
   ユースケースが見る口（要件 §10-3 ルール 3）。**実装はアダプタに置く。**
@@ -31,6 +31,7 @@ export type StartedAnnouncement = {
   readonly projectName: string;
   readonly repoUrl: string;
   readonly prompt: string;
+  readonly target: RunTarget;
 };
 
 export type PostResult =

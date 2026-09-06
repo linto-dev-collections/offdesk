@@ -54,7 +54,7 @@ GitHub Actions の **`projects sync`** を `workflow_dispatch` で回し、**1 �
 | `check` | 書かない | 触らない | 迷ったら最初にこれ（既定） |
 | `add` | 入れる | **更新する** | 増やすとき |
 | `update` | 書き換える | 触らない | トークン差し替え・チャンネル変更 |
-| `commands` | 触らない | **更新する** | 選択肢がずれた |
+| `commands` | 触らない | **更新する** | 選択肢がずれた・**option を増やした**（`issue` / `pr` のような欄は登録し直すまで Discord に出ない） |
 
 **`add` で `/offdesk` の更新が要る**: 選択肢は登録の時点で焼き込まれるので、台帳に入れただけでは Discord に新しい名前が出ない（画面には出るので気づきにくい）。
 
@@ -69,6 +69,10 @@ GitHub Actions の **`projects sync`** を `workflow_dispatch` で回し、**1 �
 5. `projects.json` に 1 件足して `gh secret set PROJECTS_JSON < projects.json`
 6. `projects sync` を `check` → 中身を読む → `add`
 7. `/projects` に出ること・`/offdesk` の選択肢に出ることを見る
+
+**`ROUTINE_PROMPT` を直したら、既に在る routine 全部に貼り直す。** プロンプトは routine に焼き込まれるので、
+直しても勝手には届かない（**ズレても静かに動き続ける**）。逆に、ツールの説明・`initialize` の instructions・
+プラグインの skill は貼り直しが要らない —— 前者 2 つは Worker のデプロイで、skill は §3-1 の `# 版` を上げると届く。
 
 **対象リポジトリには 1 バイトも置かない**（§3-1 のプラグインが入る）。
 ただし**空のリポジトリにしない** —— コミット 0 だとデフォルトブランチが無く、clone に失敗する。`README.md` 1 枚でよい。
@@ -111,7 +115,7 @@ Custom のネットワークにするときは「**Also include default list of 
 
 ```bash
 #!/bin/bash
-# 版: 2   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
+# 版: 3   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
 set -u
 for home in /home/user /root; do
   [ -d "$home" ] || continue

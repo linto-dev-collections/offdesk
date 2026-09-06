@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { newRunKey, OFFDESK_TOOL_MATCHER } from "@offdesk/domain";
+import {
+  newRunKey,
+  OFFDESK_TOOL_MATCHER,
+  PUBLISH_PLAN_SKILL,
+} from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
@@ -411,6 +415,18 @@ describe("hooks.json のコマンドが実際に走る", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toContain(PLUGIN_ROOT);
     expect(parsed.hookSpecificOutput.additionalContext).not.toContain(
       "CLAUDE_PLUGIN_ROOT",
+    );
+  });
+
+  it("SessionStart の文脈が計画の skill を名指しする", () => {
+    const command =
+      commands.find(([event]) => event === "SessionStart")?.[1] ?? "";
+    const parsed = JSON.parse(run(command).stdout) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(
+      PUBLISH_PLAN_SKILL,
     );
   });
 });

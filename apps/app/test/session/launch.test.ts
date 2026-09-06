@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { NO_TARGET, type RunTarget } from "@offdesk/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { launchRunWithEnv } from "../../src/worker/session/launch.ts";
 import {
@@ -15,7 +16,9 @@ import { discordOk, jsonResponse, stubOutbound } from "../support/outbound.ts";
 
 const REQUESTER = "111111111111111111";
 
-const launch = async (overrides: { fireUrl?: string } = {}) =>
+const launch = async (
+  overrides: { fireUrl?: string; target?: RunTarget } = {},
+) =>
   await launchRunWithEnv(env, {
     projectId: await seedProject({
       name: "offdesk-test",
@@ -28,6 +31,7 @@ const launch = async (overrides: { fireUrl?: string } = {}) =>
     fireUrl: overrides.fireUrl ?? FIRE_URL,
     prompt: "READMEにtypoを1つ入れて直すPRを作って",
     requesterDiscordUserId: REQUESTER,
+    target: overrides.target ?? NO_TARGET,
   });
 
 const fireOk = () =>
@@ -38,6 +42,58 @@ const fireOk = () =>
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("作業対象（`/offdesk` の issue / pr）", () => {
+  const REPO = "https://github.com/linto-dev-collections/offdesk-test";
+
+  it("Issue はスレッド名・payload・起動メッセージに出る", async () => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({ threadId: "444444444444444444" })],
+      ["api.anthropic.com", fireOk],
+    ]);
+
+    await launch({ target: { kind: "issue", number: 123 } });
+
+    expect(stub.callsTo("/threads")[0]?.body).toContain("OFFDESK #123");
+    expect(stub.callsTo("api.anthropic.com")[0]?.body).toContain(
+      "claude/issue-123",
+    );
+    /* **`repo_url` から組む** ので、GitHub の API も token も要らない。 */
+    expect(stub.callsTo("/messages")[0]?.body).toContain(`${REPO}/issues/123`);
+  });
+
+  /*
+    **PR の run はブランチを作らない。** ここが緩むと、レビューのつもりの run が
+    空のブランチと 2 本目の PR を残す。
+  */
+  it("PR ではブランチを作らせない", async () => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({ threadId: "444444444444444444" })],
+      ["api.anthropic.com", fireOk],
+    ]);
+
+    await launch({ target: { kind: "pull", number: 45 } });
+
+    expect(stub.callsTo("/threads")[0]?.body).toContain("OFFDESK PR#45");
+
+    const fired = stub.callsTo("api.anthropic.com")[0]?.body ?? "";
+    expect(fired).toContain("Pull Request #45");
+    expect(fired).not.toContain("claude/");
+
+    expect(stub.callsTo("/messages")[0]?.body).toContain(`${REPO}/pull/45`);
+  });
+
+  it("指定が無ければスレッド名は今まで通り", async () => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({ threadId: "444444444444444444" })],
+      ["api.anthropic.com", fireOk],
+    ]);
+
+    await launch();
+
+    expect(stub.callsTo("/threads")[0]?.body).toContain("OFFDESK READMEに");
+  });
 });
 
 describe("うまくいったとき", () => {
@@ -223,6 +279,7 @@ describe("起動に失敗したとき", () => {
       fireUrl: "https://evil.example.com/v1/fire",
       prompt: "READMEを直す",
       requesterDiscordUserId: REQUESTER,
+      target: NO_TARGET,
     });
 
     expect(outcome.failureReason).toContain("fire_url");

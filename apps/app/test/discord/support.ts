@@ -1,10 +1,3 @@
-/*
-  Discord の interaction を**本物の Ed25519 で署名して**投げるための道具。
-
-  鍵はテストの中で作る。固定の鍵をリポジトリに置くと「その鍵で通る」ことしか
-  確かめられず、鍵の読み込み経路（hex → importKey）が壊れても気付けない。
-*/
-
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
@@ -19,7 +12,6 @@ export const createSigningKeys = async (): Promise<SigningKeys> => {
     "verify",
   ])) as CryptoKeyPair;
 
-  // `exportKey` の戻り値は形式によって `ArrayBuffer | JsonWebKey`。"raw" は前者。
   const raw = (await crypto.subtle.exportKey(
     "raw",
     pair.publicKey,
@@ -42,7 +34,6 @@ export const createSigningKeys = async (): Promise<SigningKeys> => {
 
 export const ORIGIN = "http://localhost:5173";
 
-/** Discord は `timestamp + body` に署名する。 */
 export const signedRequest = async (
   keys: SigningKeys,
   body: unknown,
@@ -72,7 +63,6 @@ export const signedRequest = async (
   });
 };
 
-/** 1 バイトだけ違う署名を作る（末尾の 16 進 1 桁を回す）。 */
 export const tamper = (signatureHex: string): string => {
   const last = signatureHex.slice(-1);
   const rotated = last === "0" ? "1" : "0";
@@ -89,6 +79,8 @@ export const commandInteraction = (input: {
   readonly channelId?: string;
   readonly parentId?: string;
   readonly name?: string;
+  readonly issue?: number;
+  readonly pr?: number;
 }) => ({
   type: 2,
   token: "interaction-token",
@@ -110,13 +102,14 @@ export const commandInteraction = (input: {
       ...(input.project === undefined
         ? []
         : [{ name: "project", value: input.project }]),
+      ...(input.issue === undefined
+        ? []
+        : [{ name: "issue", value: input.issue }]),
+      ...(input.pr === undefined ? [] : [{ name: "pr", value: input.pr }]),
     ],
   },
 });
 
-/**
- * ボタンの interaction（type 3・P3a）。**`custom_id` が台帳への唯一の手掛かり。**
- */
 export const componentInteraction = (input: {
   readonly customId: string;
   readonly userId?: string | null;

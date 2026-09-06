@@ -1,5 +1,10 @@
-import type { RandomBytes } from "@offdesk/domain";
-import { buildFireText, newRunKey, threadName } from "@offdesk/domain";
+import type { RandomBytes, RunTarget } from "@offdesk/domain";
+import {
+  buildFireText,
+  newRunKey,
+  threadName,
+  threadPrefix,
+} from "@offdesk/domain";
 import type {
   AnnouncerPort,
   RoutineLauncherPort,
@@ -22,6 +27,8 @@ export type LaunchRunInput = {
   readonly fireUrl: string;
   readonly prompt: string;
   readonly requesterDiscordUserId: string;
+  /** 何に対して働く run か（`/offdesk` の `issue` / `pr`）。 */
+  readonly target: RunTarget;
 };
 
 export type LaunchRunOutcome = {
@@ -31,20 +38,6 @@ export type LaunchRunOutcome = {
   readonly failureReason: string | null;
 };
 
-const THREAD_PREFIX = "OFFDESK";
-
-/**
- * run を 1 本起こす（計画 P2 §3-9）。
- *
- * **台帳の行を先に作る。** スレッド作成も routine の起動も失敗しうるが、行が先にあれば
- * 「何を試みて失敗したか」が後から引ける。
- *
- * **スレッドを作れなかったら `thread_id` は NULL のまま**（要件 `F-A7`・`I-4`）。
- * チャンネル id を入れると、そのチャンネルの雑談が丸ごと Claude への入力になる。
- *
- * **起動に失敗しても勝手に起こし直さない**（要件 `F-A6`）。実は起動できていた場合に
- * 2 本目が立つ。`failed` に畳んで人に見せる。
- */
 export const launchRun = async (
   deps: LaunchRunDeps,
   input: LaunchRunInput,
@@ -64,6 +57,7 @@ export const launchRun = async (
     projectName: input.projectName,
     repoUrl: input.repoUrl,
     prompt: input.prompt,
+    target: input.target,
   };
 
   const anchor = await deps.announcer.postAnchor(input.channelId, announcement);
@@ -73,7 +67,7 @@ export const launchRun = async (
     const thread = await deps.announcer.openThread(
       input.channelId,
       anchor.id,
-      threadName(THREAD_PREFIX, input.prompt),
+      threadName(threadPrefix(input.target), input.prompt),
     );
     if (thread.ok) {
       threadId = thread.id;
@@ -84,7 +78,7 @@ export const launchRun = async (
   const fired = await deps.launcher.fire({
     projectId: input.projectId,
     fireUrl: input.fireUrl,
-    text: buildFireText(runKey, input.prompt),
+    text: buildFireText(runKey, input.prompt, input.target),
   });
 
   if (!fired.ok) {

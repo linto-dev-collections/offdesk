@@ -46,8 +46,12 @@ describe("listProjects", () => {
       "fireUrl",
       "disabledAt",
     ]);
-    expect(JSON.stringify(project)).not.toContain("ciphertext");
-    expect(JSON.stringify(project)).not.toContain("iv");
+    /*
+      **キーで見る。** `"iv"` を素の部分文字列で探すと、cuid2 の id が
+      たまたま `iv` を含んだ回だけ落ちる（実際に踏んだ）。
+    */
+    expect(JSON.stringify(project)).not.toContain('"ciphertext"');
+    expect(JSON.stringify(project)).not.toContain('"iv"');
   });
 
   /** 要件 `F-H5`。行を消さずに使えなくする。 */
