@@ -84,6 +84,18 @@ export {
   sweepQueuedRuns,
 } from "./sweep-queued-runs.ts";
 export type {
+  SweepSilentRunsDeps,
+  SweepSilentRunsPort,
+  SweepSilentRunsResult,
+} from "./sweep-silent-runs.ts";
+export {
+  SILENT_SWEEP_AFTER_MS,
+  SILENT_SWEEP_EVENT_BODY,
+  SILENT_SWEEP_LIMIT,
+  SILENT_SWEEP_REASON,
+  sweepSilentRuns,
+} from "./sweep-silent-runs.ts";
+export type {
   FireTokenCipherPort,
   ProjectStoreWritePort,
   SyncProjectsApplied,

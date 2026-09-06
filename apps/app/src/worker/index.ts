@@ -26,6 +26,7 @@ import { router } from "./rpc/router.ts";
 import { CRON_EVERY_5_MIN } from "./scheduled/crons.ts";
 import { ensureGatewayConnected } from "./scheduled/ensure-gateway.ts";
 import { sweepStaleQueuedRuns } from "./scheduled/sweep-queued-runs.ts";
+import { sweepSilentLiveRuns } from "./scheduled/sweep-silent-runs.ts";
 
 const app = new Hono<AppBindings>();
 
@@ -263,7 +264,7 @@ app.use(`${RPC_PREFIX}/*`, async (c, next) => {
 });
 
 /*
-  5 分ごとの 2 つの仕事（要件 `F-I2`・`F-I6`・計画 P8 §3-1）。
+  5 分ごとの 3 つの仕事（要件 `F-I2`・`F-I6`・`F-C6`・計画 P8 §3-1）。
 
   **`Promise.allSettled` を使う**（`all` ではない）。Gateway の起こし直しが
   失敗しても掃除は走らせたい —— `all` にすると、片方の reject で
@@ -283,6 +284,7 @@ const scheduled: ExportedHandlerScheduledHandler<WorkerEnv> = (
         Promise.allSettled([
           ensureGatewayConnected(env),
           sweepStaleQueuedRuns(env),
+          sweepSilentLiveRuns(env),
         ]),
       );
       return;

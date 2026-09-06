@@ -76,10 +76,12 @@ export type {
   RunRecord,
   RunSortColumn,
   RunStatus,
+  SilentRun,
   StaleQueuedRun,
 } from "./repositories/run.ts";
 export {
   abandonAndStart,
+  abandonSilentRun,
   attachRunThread,
   countRuns,
   failQueuedRun,
@@ -89,6 +91,7 @@ export {
   insertRun,
   isTerminalStatus,
   listRuns,
+  listSilentLiveRuns,
   listStaleQueuedRuns,
   markRunDone,
   markRunFailed,

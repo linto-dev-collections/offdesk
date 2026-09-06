@@ -70,9 +70,7 @@ GitHub Actions の **`projects sync`** を `workflow_dispatch` で回し、**1 �
 6. `projects sync` を `check` → 中身を読む → `add`
 7. `/projects` に出ること・`/offdesk` の選択肢に出ることを見る
 
-**`ROUTINE_PROMPT` を直したら、既に在る routine 全部に貼り直す。** プロンプトは routine に焼き込まれるので、
-直しても勝手には届かない（**ズレても静かに動き続ける**）。逆に、ツールの説明・`initialize` の instructions・
-プラグインの skill は貼り直しが要らない —— 前者 2 つは Worker のデプロイで、skill は §3-1 の `# 版` を上げると届く。
+**`ROUTINE_PROMPT` を直したら、既に在る routine 全部に貼り直す。** プロンプトは routine に焼き込まれるので、直しても勝手には届かない（**ズレても静かに動き続ける**）。逆に、ツールの説明・`initialize` の instructions・プラグインの skill は貼り直しが要らない —— 前者 2 つは Worker のデプロイで、skill は §3-1 の `# 版` を上げると届く。
 
 **対象リポジトリには 1 バイトも置かない**（§3-1 のプラグインが入る）。
 ただし**空のリポジトリにしない** —— コミット 0 だとデフォルトブランチが無く、clone に失敗する。`README.md` 1 枚でよい。
@@ -134,18 +132,13 @@ exit 0
 ### 3-2. effort（`CLAUDE_CODE_EFFORT_LEVEL`）
 
 **routine のフォームに effort の欄は無い**（あるのはモデルセレクタだけ）。
-指定する口は cloud environment の環境変数 1 つで、値は `low` / `medium` / `high` /
-`xhigh` / `max` か `auto`。offdesk は **`xhigh`**（コードエージェント的な作業向け）。
+指定する口は cloud environment の環境変数 1 つで、値は `low` / `medium` / `high` / `xhigh` / `max` か `auto`。offdesk は **`xhigh`**（コードエージェント的な作業向け）。
 
-- **これが最優先。** `CLAUDE_CODE_EFFORT_LEVEL` は `--effort` と `/effort` を**上書きする** ——
-  置いたあとに人がセッションを開いて `/effort` で下げようとしても効かない
+- **これが最優先。** `CLAUDE_CODE_EFFORT_LEVEL` は `--effort` と `/effort` を**上書きする** —— 置いたあとに人がセッションを開いて `/effort` で下げようとしても効かない
 - **`max` は環境変数でしか永続しない**（セッション内で `max` にしてもその 1 回だけ）
 - **環境は全プロジェクトで共通**なので、この値も全 routine に一律で効く。
-  プロジェクトごとに変えたくなったら environment を分けることになり、
-  `OFFDESK_URL` / `OFFDESK_TOKEN` / 許可ドメイン / setup script（＋`# 版: N`）が
-  環境の数だけ二重管理になる。**いまは 1 つで足りる**
-- Opus 5 に「最初に走らせた版の effort を保留する」挙動（Fable 5 / Opus 4.8 / 4.7 にある）は
-  **無い**ので、`/effort` が `Not applied` になる罠は踏まない
+  プロジェクトごとに変えたくなったら environment を分けることになり、`OFFDESK_URL` / `OFFDESK_TOKEN` / 許可ドメイン / setup script（＋`# 版: N`）が環境の数だけ二重管理になる。**いまは 1 つで足りる**
+- Opus 5 に「最初に走らせた版の effort を保留する」挙動（Fable 5 / Opus 4.8 / 4.7 にある）は**無い**ので、`/effort` が `Not applied` になる罠は踏まない
 
 ### 3-3. プラグインを更新したら「版」を上げる
 

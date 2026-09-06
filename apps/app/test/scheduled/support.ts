@@ -14,7 +14,7 @@ import { CRON_EVERY_5_MIN } from "../../src/worker/scheduled/crons.ts";
   振り分けと `waitUntil` の載せ方が検査から外れる —— あそこが P8 の
   いちばん静かに壊れるところ（どの分岐にも入らないと例外も出ない）。
 
-  **`waitOnExecutionContext` を必ず待つ。** 2 つの仕事は `waitUntil` の中で
+  **`waitOnExecutionContext` を必ず待つ。** 3 つの仕事は `waitUntil` の中で
   走るので、待たずに検査すると書き込みの途中を見る。
 */
 
