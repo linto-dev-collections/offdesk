@@ -3,18 +3,16 @@ name: projects sync
 on:
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: 送らずに、送る内容とトークンの通りだけ見る
-        type: boolean
-        default: true
-      register_commands:
-        description: 投入のあとに /offdesk を Discord へ登録し直す
-        type: boolean
-        default: false
-      guild_id:
-        description: 登録先のサーバー id（空ならグローバル。伝播に時間がかかる）
-        type: string
-        default: ""
+      action:
+        description: 何をしますか
+        type: choice
+        required: true
+        default: "check: 台帳に書かない。送る中身と、トークンが通るかだけ見る"
+        options:
+          - "check: 台帳に書かない。送る中身と、トークンが通るかだけ見る"
+          - "add: 台帳に入れて、Discord の /offdesk の選択肢も更新する"
+          - "update: 台帳の既存の行を書き換える（/offdesk は触らない）"
+          - "commands: Discord の /offdesk の選択肢だけ登録し直す（台帳は触らない）"
 
 concurrency:
   group: projects-sync
@@ -24,6 +22,10 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    env:
+      ACTION: ${{ inputs.action }}
+
     steps:
       - uses: actions/checkout@v7
 
@@ -38,45 +40,65 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # `commands` は台帳を触らないので `projects.json` が要らない。
       - name: projects.json を用意する
+        if: ${{ !startsWith(inputs.action, 'commands') }}
         env:
           PROJECTS_JSON: ${{ secrets.PROJECTS_JSON }}
         run: |
           if [ -z "${PROJECTS_JSON}" ]; then
-            echo "secrets.PROJECTS_JSON が空です。gh secret set PROJECTS_JSON < projects.json" >&2
+            echo "::error::secrets.PROJECTS_JSON が空です。gh secret set PROJECTS_JSON < projects.json" >&2
             exit 1
           fi
           printf '%s' "${PROJECTS_JSON}" > projects.json
 
-      # **入力は env で渡す。** `${{ }}` を `run:` の中へ直に書くと、
-      # 入力の文字列がシェルとして解釈される（`guild_id` は自由記述）。
-      # GitHub の hardening ガイドが env 経由を指定している。
-      - name: 投入する
+      - name: 台帳へ入れる
+        if: ${{ !startsWith(inputs.action, 'commands') }}
         env:
           OFFDESK_URL: ${{ vars.OFFDESK_URL }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
-          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          # **送るのは "false" と読めたときだけ**（fail-closed）。
-          # 逆に書くと、値が想定外だったときに「送らないつもりが送る」側へ倒れる。
-          if [ "${DRY_RUN}" = "false" ]; then
-            pnpm projects:sync
-          else
-            pnpm projects:sync -- --dry-run
-          fi
+          # **知らない値は送らない側へ倒す**（fail-closed）。`case` の腕を
+          # 足し忘れても、送るのではなく dry-run に落ちる。
+          case "${ACTION%%:*}" in
+            add | update) pnpm projects:sync ;;
+            *) pnpm projects:sync -- --dry-run ;;
+          esac
 
-      - name: /offdesk を登録し直す
-        if: ${{ inputs.register_commands && !inputs.dry_run }}
+      - name: Discord の /offdesk の選択肢を更新する
+        if: ${{ startsWith(inputs.action, 'add') || startsWith(inputs.action, 'commands') }}
         env:
           OFFDESK_URL: ${{ vars.OFFDESK_URL }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
-          GUILD_ID: ${{ inputs.guild_id }}
+          GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
         run: |
           if [ -n "${GUILD_ID}" ]; then
             pnpm commands:register -- --guild "${GUILD_ID}"
           else
+            echo "::warning::vars.DISCORD_GUILD_ID が空なのでグローバル登録します（反映に時間がかかります）"
             pnpm commands:register
           fi
+
+      - name: 続けてやることを出す
+        if: ${{ always() && startsWith(inputs.action, 'add') }}
+        run: |
+          {
+            echo "## 増やしたあとに残っていること"
+            echo
+            echo "台帳への投入と \`/offdesk\` の登録はここで済んでいます。"
+            echo "**次はコードから見えない側です**（OPERATIONS.md §1）。"
+            echo
+            echo "- [ ] claude.ai で routine を作る（Repositories は対象リポジトリ 1 本だけ）"
+            echo "- [ ] routine の environment に \`offdesk\` を選ぶ（新しい環境を作らない）"
+            echo "- [ ] routine のプロンプトに \`pnpm routine:prompt\` の出力を貼る"
+            echo "- [ ] Discord にチャンネルを作る（bot が見えること）"
+            echo "- [ ] 対象リポジトリを空にしない（README 1 枚でよい）"
+            echo
+            echo "対象リポジトリに offdesk のファイルを置く必要はありません"
+            echo "（プラグインが environment の setup script から入ります）。"
+            echo
+            echo "確かめ方: Discord で \`/offdesk\` を打ち、選択肢に新しい名前が出ること。"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: 後始末
         if: always()
