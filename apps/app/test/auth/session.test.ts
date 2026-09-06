@@ -55,7 +55,7 @@ describe("Cookie の属性", () => {
   it("https では Secure が付く", async () => {
     const { cookies } = await setCookieOf({
       ...env,
-      BETTER_AUTH_URL: "https://offdesk.linto-dev.workers.dev",
+      BETTER_AUTH_URL: "https://offdesk.example.workers.dev",
     });
 
     expect(cookies.length).toBeGreaterThan(0);

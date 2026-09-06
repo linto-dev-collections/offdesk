@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { newRunKey } from "@offdesk/domain";
+import { newRunKey, OFFDESK_TOOL_MATCHER } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
@@ -9,11 +9,16 @@ const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
 const readSource = (relative: string): string =>
   readFileSync(path.join(REPO_ROOT, relative), "utf8");
 
-const SCRIPT_PATH = "repo-template/.claude/hooks/offdesk-hook.sh";
+const SCRIPT_PATH = "plugin/plugins/offdesk/hooks/offdesk-hook.sh";
 const SCRIPT = readSource(SCRIPT_PATH);
 
+/*
+  **プラグインの `hooks/hooks.json` を読む**（2026-09-06）。以前は対象リポジトリへ
+  写す `.claude/settings.json` だったが、配布物がプラグインへ移って
+  **対象リポジトリには 1 バイトも置かなくなった**。形は同じ（`{ hooks: { … } }`）。
+*/
 const SETTINGS = JSON.parse(
-  readSource("repo-template/.claude/settings.json"),
+  readSource("plugin/plugins/offdesk/hooks/hooks.json"),
 ) as {
   hooks: Record<
     string,
@@ -86,9 +91,9 @@ describe("読む行を絞っている", () => {
   });
 });
 
-describe("hook の名前が settings.json と対で維持されている", () => {
+describe("hook の名前が hooks.json と対で維持されている", () => {
   it.each(["PreToolUse", "Stop", "SessionEnd"])(
-    "%s が settings.json とスクリプトの両方にある",
+    "%s が hooks.json とスクリプトの両方にある",
     (event) => {
       expect(Object.keys(SETTINGS.hooks)).toContain(event);
       expect(SCRIPT).toContain(event);
@@ -111,8 +116,14 @@ describe("hook の名前が settings.json と対で維持されている", () =>
   it("PreToolUse に承認の群と通報の群が両方ある", () => {
     const groups = SETTINGS.hooks.PreToolUse ?? [];
 
+    /*
+      **matcher は 2 通りのツール名を拾う**（`OFFDESK_TOOL_MATCHER`）。
+      プラグイン経由だと `mcp__plugin_offdesk_offdesk__*` になるので
+      （2026-09-05 に cloud session で実測）、片方だけにすると
+      **経路を変えた瞬間に routine が静かに詰まる。**
+    */
     expect(groups.map((group) => group.matcher)).toEqual([
-      "mcp__offdesk__.*",
+      OFFDESK_TOOL_MATCHER,
       undefined,
     ]);
     expect(groups[0]?.hooks[0]?.command).toContain("permissionDecision");
@@ -125,6 +136,12 @@ describe("hook の名前が settings.json と対で維持されている", () =>
         for (const hook of group.hooks) {
           if (!hook.command.includes("offdesk-hook.sh")) continue;
           expect(hook.command).toMatch(/^bash /);
+          /*
+            **プラグインの中を指す。** `$CLAUDE_PROJECT_DIR`（対象リポジトリ）を
+            指したままだと、置かなくなったファイルを探して静かに何もしない。
+          */
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: hooks.json に書かれた文字列そのもの（評価するのではなく、あることを確かめている）。
+          expect(hook.command).toContain("${CLAUDE_PLUGIN_ROOT}");
         }
       }
     }
@@ -218,5 +235,81 @@ describe("トークンを漏らさない（脅威 12）", () => {
     for (const payload of payloads) {
       expect(payload).not.toContain("transcript");
     }
+  });
+});
+
+/*
+  **hooks.json に書いたコマンドが、実際に bash で走ること**（2026-09-06 に踏んだ）。
+
+  コマンドは JSON の文字列の中に埋めた**シェルの 1 行**で、`printf '…{"json"}…'` の
+  形をしている —— **単一引用符の中にアポストロフィが 1 つ混ざるだけで構文エラー**に
+  なる。英語に書き換えたときに `repository's` で実際に踏んだ。
+
+  **静かに壊れる。** hook が落ちてもセッションは進むので、症状は
+  「承認が出ない」「残量が出ない」だけ。JSON として妥当かを見るだけの検査では
+  通ってしまう（JSON は妥当だった）—— **走らせるしかない。**
+*/
+describe("hooks.json のコマンドが実際に走る", () => {
+  const PLUGIN_ROOT = path.join(REPO_ROOT, "plugin/plugins/offdesk");
+
+  const run = (
+    command: string,
+  ): { readonly status: number; readonly stdout: string } => {
+    try {
+      const stdout = execFileSync("bash", ["-c", command], {
+        input: "{}",
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH ?? "",
+          CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT,
+        },
+      });
+      return { status: 0, stdout };
+    } catch (error) {
+      return { status: (error as { status?: number }).status ?? 1, stdout: "" };
+    }
+  };
+
+  const commands = Object.entries(SETTINGS.hooks).flatMap(([event, groups]) =>
+    groups.flatMap((group) =>
+      group.hooks.map((hook) => [event, hook.command] as const),
+    ),
+  );
+
+  it("コマンドが 1 つ以上ある（検査が空振りしていない）", () => {
+    expect(commands.length).toBeGreaterThan(0);
+  });
+
+  it.each(commands)("%s のコマンドが 0 で終わる", (_event, command) => {
+    expect(run(command).status).toBe(0);
+  });
+
+  /*
+    **JSON を出すコマンドは、妥当な JSON を出す。** 出力が壊れていると
+    Claude Code はその hook の指示（承認・文脈の追加）を捨てる ——
+    **落ちないので、なお気付きにくい。**
+  */
+  it.each(
+    commands.filter(([, command]) => command.includes("hookSpecificOutput")),
+  )("%s のコマンドが妥当な JSON を出す", (event, command) => {
+    const parsed = JSON.parse(run(command).stdout) as {
+      hookSpecificOutput: { hookEventName: string };
+    };
+
+    expect(parsed.hookSpecificOutput.hookEventName).toBe(event);
+  });
+
+  /** `${CLAUDE_PLUGIN_ROOT}` が実際に展開されること（素の文字列が残らない）。 */
+  it("SessionStart の文脈にプラグインの絶対パスが入る", () => {
+    const command =
+      commands.find(([event]) => event === "SessionStart")?.[1] ?? "";
+    const parsed = JSON.parse(run(command).stdout) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+
+    expect(parsed.hookSpecificOutput.additionalContext).toContain(PLUGIN_ROOT);
+    expect(parsed.hookSpecificOutput.additionalContext).not.toContain(
+      "CLAUDE_PLUGIN_ROOT",
+    );
   });
 });

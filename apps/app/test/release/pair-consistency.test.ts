@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   ASK_HOLD_MS,
@@ -43,6 +43,7 @@ const readSource = (relative: string): string =>
   readFileSync(path.join(REPO_ROOT, relative), "utf8");
 
 const OPERATIONS = readSource("OPERATIONS.md");
+const PLUGIN_DIR = "plugin/plugins/offdesk";
 const WORKER_ENV = readSource("apps/app/src/worker/env.ts");
 
 /** `const NAME ... = [ ... ]` の中の文字列リテラル（`env-required.test.ts` と同じ形）。 */
@@ -181,9 +182,9 @@ describe("対象リポジトリに .gitignore を要求しない（2026-09-05 �
     expect(occurrences(text, "plans/<名前>")).toBeGreaterThan(0);
   });
 
-  /** テンプレートは `.gitignore` を配らない（配っても対象の設定は変えられない）。 */
-  it("repo-template に .gitignore が無い", () => {
-    expect(() => readSource("repo-template/.gitignore")).toThrow();
+  /** プラグインは `.gitignore` を配らない（配っても対象の設定は変えられない）。 */
+  it("plugin に .gitignore が無い", () => {
+    expect(() => readSource(`${PLUGIN_DIR}/.gitignore`)).toThrow();
   });
 
   /** offdesk 自身の `/plans/` は別の理由で残る（このリポジトリの使い捨ての計画）。 */
@@ -195,22 +196,135 @@ describe("対象リポジトリに .gitignore を要求しない（2026-09-05 �
 describe("配るテンプレートが揃っている（§9-1）", () => {
   /*
     **1 つでも欠けると静かに壊れる。** `.mcp.json` が無ければツールが
-    見つからず、`settings.json` が無ければ承認待ちで固まり、
-    hook が無ければ残量が出ず、`publish-plan.sh` が無ければ計画が
+    見つからず、`hooks.json` が無ければ承認待ちで固まり、
+    hook スクリプトが無ければ残量が出ず、`publish-plan.sh` が無ければ計画が
     Discord に流れ込む（**どれもエラーにはならない**）。
-
-    **4 つ。** `.gitignore` は 2026-09-05 に外した（上の describe を参照）。
   */
   it.each([
+    ".claude-plugin/plugin.json",
     ".mcp.json",
-    ".claude/settings.json",
-    ".claude/hooks/offdesk-hook.sh",
-    ".claude/scripts/publish-plan.sh",
-  ])("repo-template に %s がある", (file) => {
-    expect(() => readSource(`repo-template/${file}`)).not.toThrow();
+    "hooks/hooks.json",
+    "hooks/offdesk-hook.sh",
+    "scripts/publish-plan.sh",
+  ])("plugin に %s がある", (file) => {
+    expect(() => readSource(`${PLUGIN_DIR}/${file}`)).not.toThrow();
   });
 
-  it("OPERATIONS.md が repo-template を写すよう案内している", () => {
-    expect(OPERATIONS).toContain("repo-template/");
+  /** marketplace の宣言（`claude plugin marketplace add` が最初に読む）。
+   **リポジトリのルート**にある —— 下の describe が中身を見る。 */
+  it("marketplace.json がルートにある", () => {
+    expect(() => readSource(".claude-plugin/marketplace.json")).not.toThrow();
+  });
+
+  /** **対象リポジトリへ配るものが無いこと**を手順書が言っている（2026-09-06）。 */
+  it("OPERATIONS.md が「1 バイトも置かない」と言っている", () => {
+    expect(OPERATIONS).toContain("1 バイトも置かない");
+  });
+});
+
+/*
+  **offdesk 自身が marketplace**（2026-09-06・依頼者の判断でキーレスに倒した）。
+
+  以前は public のミラー（`offdesk-plugin`）へ CI が押す形にしていたが、
+  **別リポジトリへ push するには鍵が要る** —— `GITHUB_TOKEN` は走っている
+  リポジトリにしか権限が無く、OIDC も GitHub 自身のトークンには変換されない。
+  offdesk を public にすれば**押す先そのものが消える**ので、鍵も CI の手順も
+  ミラーも要らなくなり、**ずれようがなくなる。**
+
+  ここで固めるのは、**setup script が指す名前とマニフェストの宣言が一致すること。**
+  食い違うと `claude plugin install offdesk@offdesk` が対象を見つけられず、
+  **cloud session にツールが 1 つも載らない**（Discord は無音のまま）。
+*/
+describe("offdesk 自身が marketplace", () => {
+  const MARKETPLACE = JSON.parse(
+    readSource(".claude-plugin/marketplace.json"),
+  ) as {
+    name: string;
+    plugins: readonly { name: string; source: string }[];
+  };
+
+  /** **マニフェストはリポジトリのルート必須**（公式の要件）。 */
+  it("マニフェストがルートにある", () => {
+    expect(MARKETPLACE.name).toBe("offdesk");
+    expect(MARKETPLACE.plugins).toHaveLength(1);
+  });
+
+  it("source が実在するプラグインを指す", () => {
+    const source = MARKETPLACE.plugins[0]?.source ?? "";
+
+    expect(source).toBe(`./${PLUGIN_DIR}`);
+    expect(() =>
+      readSource(`${PLUGIN_DIR}/.claude-plugin/plugin.json`),
+    ).not.toThrow();
+  });
+
+  /** `./` 相対だけ（`../` はマーケットプレイス根の外を指すので公式が禁じている）。 */
+  it("source が ./ 相対で、根の外を指さない", () => {
+    for (const entry of MARKETPLACE.plugins) {
+      expect(entry.source.startsWith("./")).toBe(true);
+      expect(entry.source).not.toContain("..");
+    }
+  });
+
+  it("手順書の setup script と名前が一致する", () => {
+    const pluginName = MARKETPLACE.plugins[0]?.name ?? "";
+
+    expect(OPERATIONS).toContain(
+      `claude plugin install ${pluginName}@${MARKETPLACE.name}`,
+    );
+    expect(OPERATIONS).toContain(
+      "claude plugin marketplace add linto-dev-collections/offdesk",
+    );
+  });
+
+  /*
+    **鍵もミラーも残さない。** 「押す」形へ戻すと鍵が 1 つ増えるので、
+    戻すなら意図的にやること —— 残骸が残っていると、
+    「もう使っていない秘密」が `OPERATIONS.md` §0 の一覧に残り続ける。
+  */
+  it("CI にミラーへ押す手順が残っていない", () => {
+    const ci = readSource(".github/workflows/ci.yml");
+
+    expect(ci).not.toContain("PLUGIN_MIRROR_DEPLOY_KEY");
+    expect(ci).not.toContain("offdesk-plugin");
+  });
+});
+
+/*
+  **`plugin/` の中は英語だけ**（2026-09-06・依頼者の指定）。
+
+  offdesk 本体の why コメントは日本語のままでよい。**あそこだけが違う理由は
+  配られる先**にある —— プラグインは public のミラーへ押され、
+  誰の cloud session にも入りうるので、読む人を日本語話者に限定しない。
+
+  `additionalContext` と `permissionDecisionReason` は**モデルとログに出る文**でも
+  あるので、ここには機能上の意味もある。
+*/
+describe("plugin/ は英語だけ", () => {
+  const JAPANESE = /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/;
+
+  const filesUnder = (dir: string): readonly string[] => {
+    const full = path.join(REPO_ROOT, dir);
+    return readdirSync(full, { withFileTypes: true, recursive: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.join(entry.parentPath, entry.name))
+      .map((file) => path.relative(REPO_ROOT, file));
+  };
+
+  const files = filesUnder("plugin");
+
+  /** 走査が空振りしていないこと（`plugin/` を消したら赤くなる）。 */
+  it("走査するファイルがある", () => {
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it.each(files)("%s に日本語が無い", (file) => {
+    const offending = readSource(file)
+      .split("\n")
+      .map((line, index) => [index + 1, line] as const)
+      .filter(([, line]) => JAPANESE.test(line))
+      .map(([lineNumber, line]) => `${lineNumber}: ${line.trim()}`);
+
+    expect(offending).toEqual([]);
   });
 });

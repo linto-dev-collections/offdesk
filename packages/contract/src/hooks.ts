@@ -7,9 +7,9 @@ import { z } from "zod";
   モデル名だけで、`transcript_path` すら送らない —— ローカルのファイルパスは
   offdesk 側で使い道がなく、送れば漏れる情報が増えるだけ。
 
-  **契約をここに置く理由は、送る側が別リポジトリのシェルスクリプトだから。**
-  `repo-template/.claude/hooks/offdesk-hook.sh` は対象リポジトリに commit されて
-  しまうので、型で縛れない。**受け側で閉じておくのが唯一の防具。**
+  **契約をここに置く理由は、送る側がシェルスクリプトだから。**
+  `plugin/plugins/offdesk/hooks/offdesk-hook.sh` は cloud session の中で走る
+  bash で、型で縛れない。**受け側で閉じておくのが唯一の防具。**
 */
 
 /**

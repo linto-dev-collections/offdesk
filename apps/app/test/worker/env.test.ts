@@ -21,7 +21,7 @@ const prodEnv = (): Partial<WorkerEnv> => {
   const { LOCAL_DEV: _omitted, ...rest } = localEnv();
   return {
     ...rest,
-    BETTER_AUTH_URL: "https://offdesk.linto-dev.workers.dev",
+    BETTER_AUTH_URL: "https://offdesk.example.workers.dev",
     GOOGLE_CLIENT_ID: "id",
     GOOGLE_CLIENT_SECRET: "secret",
   };

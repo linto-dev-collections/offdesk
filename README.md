@@ -9,6 +9,7 @@ Cloudflare Workers 1 本に静的アセットと Worker を載せ、D1 と R2 �
 | --- | --- |
 | このファイル | 何をするアプリか・立ち上げ方・構成 |
 | [OPERATIONS.md](./OPERATIONS.md) | **運用手順。** 秘密の置き場・プロジェクトを増やす・Gateway が落ちた・困ったときに読む順 |
+| [plugin/](./plugin/) | **配布物。** このリポジトリは Claude Code の marketplace でもある（`.claude-plugin/marketplace.json`）。対象リポジトリには 1 バイトも置かない |
 | 各パッケージの why コメント | 設計の理由（**正本はコード**） |
 
 **`docs/` と `plans/` は commit されない**（`.gitignore`）。要件定義書・テーブル定義書・

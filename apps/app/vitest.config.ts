@@ -18,7 +18,7 @@ export default defineConfig({
           BETTER_AUTH_URL: "http://localhost:5173",
           GOOGLE_CLIENT_ID: "test-google-client-id",
           GOOGLE_CLIENT_SECRET: "test-google-client-secret",
-          AUTH_ALLOWED_EMAILS: "offdesk.me@gmail.com",
+          AUTH_ALLOWED_EMAILS: "owner@example.com",
 
           DISCORD_BOT_TOKEN: "test-discord-bot-token",
           DISCORD_PUBLIC_KEY: "",

@@ -60,11 +60,11 @@ describe("validateUserInfo の判定", () => {
   };
 
   it("許可メールは通す（undefined を返す）", async () => {
-    expect(await validate({}, "offdesk.me@gmail.com")).toBeUndefined();
+    expect(await validate({}, "owner@example.com")).toBeUndefined();
   });
 
   it("大文字・前後空白の許可メールも通す", async () => {
-    expect(await validate({}, "  OffDesk.Me@Gmail.com ")).toBeUndefined();
+    expect(await validate({}, "  Owner@Example.COM ")).toBeUndefined();
   });
 
   it("許可外は error を返す", async () => {
@@ -79,13 +79,13 @@ describe("validateUserInfo の判定", () => {
   */
   it("AUTH_ALLOWED_EMAILS が空なら、許可メールでも通さない", async () => {
     expect(
-      await validate({ AUTH_ALLOWED_EMAILS: "" }, "offdesk.me@gmail.com"),
+      await validate({ AUTH_ALLOWED_EMAILS: "" }, "owner@example.com"),
     ).toMatchObject({ error: "not_allowed" });
   });
 
   it("AUTH_ALLOWED_EMAILS が空白だけでも通さない", async () => {
     expect(
-      await validate({ AUTH_ALLOWED_EMAILS: " , , " }, "offdesk.me@gmail.com"),
+      await validate({ AUTH_ALLOWED_EMAILS: " , , " }, "owner@example.com"),
     ).toMatchObject({ error: "not_allowed" });
   });
 });

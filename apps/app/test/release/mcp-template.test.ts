@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { OFFDESK_TOOL_MATCHER } from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
@@ -8,7 +9,7 @@ const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
 const readSource = (relative: string): string =>
   readFileSync(path.join(REPO_ROOT, relative), "utf8");
 
-const TEMPLATE = JSON.parse(readSource("repo-template/.mcp.json")) as {
+const TEMPLATE = JSON.parse(readSource("plugin/plugins/offdesk/.mcp.json")) as {
   mcpServers: Record<
     string,
     {
@@ -25,9 +26,8 @@ const SERVER_NAME = "offdesk";
 const TOOL_NAMES = ["ask_human", "ask_wait", "report"] as const;
 
 const SETTINGS = JSON.parse(
-  readSource("repo-template/.claude/settings.json"),
+  readSource("plugin/plugins/offdesk/hooks/hooks.json"),
 ) as {
-  permissions: { allow: readonly string[] };
   hooks: {
     PreToolUse: readonly {
       matcher?: string;
@@ -38,7 +38,7 @@ const SETTINGS = JSON.parse(
 
 const envPlaceholder = (name: string): string => `\${${name}}`;
 
-describe("repo-template/.mcp.json", () => {
+describe("plugin の .mcp.json", () => {
   it("サーバー名が offdesk（ツール名が mcp__offdesk__* になる）", () => {
     expect(Object.keys(TEMPLATE.mcpServers)).toEqual([SERVER_NAME]);
   });
@@ -73,10 +73,40 @@ describe("サーバー名が 3 か所で揃っている", () => {
     expect(source).toContain(`name: "${SERVER_NAME}"`);
   });
 
-  it("ROUTINE_PROMPT が mcp__offdesk__ask_human を名指しする", async () => {
+  /*
+    **ROUTINE_PROMPT はツールをフル名で名指ししない**（2026-09-05 に直した）。
+    接頭辞が経路で変わるため —— repo の `.mcp.json` 経由なら
+    `mcp__offdesk__ask_human`、プラグイン経由なら
+    `mcp__plugin_offdesk_offdesk__ask_human`（cloud session で実測）。
+
+    **フル名を書くと、片方の経路で「そんなツールは無い」になる。**
+    素の名前（`ask_human`）で案内し、接頭辞は一覧を見て決めさせる。
+  */
+  it("ROUTINE_PROMPT が素の名前で 3 つのツールを案内する", async () => {
+    const { OFFDESK_TOOLS, ROUTINE_PROMPT } = await import("@offdesk/domain");
+
+    for (const tool of OFFDESK_TOOLS) {
+      expect(ROUTINE_PROMPT).toContain(`\`${tool}\``);
+    }
+  });
+
+  it("ROUTINE_PROMPT が接頭辞を固定していない", async () => {
     const { ROUTINE_PROMPT } = await import("@offdesk/domain");
 
-    expect(ROUTINE_PROMPT).toContain(`mcp__${SERVER_NAME}__ask_human`);
+    /* 2 通りある事実として両方を挙げているのは可。**片方だけを命令形で書かない。** */
+    expect(ROUTINE_PROMPT).toContain("mcp__plugin_offdesk_offdesk__ask_human");
+    expect(ROUTINE_PROMPT).toContain("一覧に出ている名前");
+  });
+
+  /** `OFFDESK_TOOLS` が実物のツール名と一致すること（`mcp/server.ts` の `TOOLS`）。 */
+  it("OFFDESK_TOOLS が実装のツール名と一致する", async () => {
+    const { OFFDESK_TOOLS } = await import("@offdesk/domain");
+    const source = readSource("apps/app/src/worker/mcp/server.ts");
+
+    expect([...OFFDESK_TOOLS]).toEqual([...TOOL_NAMES]);
+    for (const tool of OFFDESK_TOOLS) {
+      expect(source).toContain(`name: "${tool}"`);
+    }
   });
 });
 
@@ -89,14 +119,19 @@ describe("/mcp が run_worker_first に入っている", () => {
   });
 });
 
-describe("repo-template/.claude/settings.json", () => {
-  it("3 つのツールを allow に名指しする", () => {
-    expect(SETTINGS.permissions.allow).toEqual(
-      TOOL_NAMES.map((tool) => `mcp__${SERVER_NAME}__${tool}`),
-    );
+describe("plugin の hooks.json", () => {
+  /*
+    **`permissions.allow` は持たない**（2026-09-06）。プラグインは権限を宣言できず、
+    そもそも claude.ai に `allowed_tools` の欄が無い（要件 §9-1）——
+    **routine で承認を出しているのは下の PreToolUse hook 1 本だけ**で、
+    それは cloud session で実測済み。allow の一覧を持つと
+    「効いていない設定が正しく見える」形になる。
+  */
+  it("権限の宣言を持たない（承認は hook が出す）", () => {
+    expect(SETTINGS).not.toHaveProperty("permissions");
   });
 
-  it.each(TOOL_NAMES)("allow の %s が実物のツール名", (tool) => {
+  it.each(TOOL_NAMES)("%s が実物のツール名", (tool) => {
     expect(readSource("apps/app/src/worker/mcp/server.ts")).toContain(
       `name: "${tool}"`,
     );
@@ -114,7 +149,7 @@ describe("repo-template/.claude/settings.json", () => {
     );
 
     expect(allowing.map((entry) => entry.matcher)).toEqual([
-      `mcp__${SERVER_NAME}__.*`,
+      OFFDESK_TOOL_MATCHER,
     ]);
     expect(allowing[0]?.hooks[0]?.type).toBe("command");
   });

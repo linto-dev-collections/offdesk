@@ -14,8 +14,8 @@ const ABSOLUTE = /^https?:\/\/[^/]+\//;
 
 describe("rpcUrl", () => {
   it("本番のオリジンから絶対 URL を作る", () => {
-    expect(rpcUrl("https://offdesk.linto-dev.workers.dev")).toBe(
-      "https://offdesk.linto-dev.workers.dev/rpc",
+    expect(rpcUrl("https://offdesk.example.workers.dev")).toBe(
+      "https://offdesk.example.workers.dev/rpc",
     );
   });
 
@@ -34,7 +34,7 @@ describe("rpcUrl", () => {
   */
   it("必ず絶対 URL になる", () => {
     for (const origin of [
-      "https://offdesk.linto-dev.workers.dev",
+      "https://offdesk.example.workers.dev",
       "http://localhost:5173",
       "http://127.0.0.1:8787",
     ]) {

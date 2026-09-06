@@ -1,0 +1,15 @@
+{
+  "name": "offdesk",
+  "description": "Marketplace for the offdesk plugin. Target repositories keep zero offdesk files: the cloud environment's setup script installs the plugin, which brings the MCP server and the hooks.",
+  "owner": {
+    "name": "Naoki Yazawa"
+  },
+  "plugins": [
+    {
+      "name": "offdesk",
+      "source": "./plugin/plugins/offdesk",
+      "description": "MCP server (ask_human / ask_wait / report) for driving Claude Code from Discord, plus hooks that report context usage and session end.",
+      "version": "0.1.0"
+    }
+  ]
+}

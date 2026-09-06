@@ -5,7 +5,18 @@ export const MAX_FIRE_TEXT_LENGTH = 65_536;
 
 export const RESEND_QUESTION = "(再送)";
 
-export const PUBLISH_PLAN_SCRIPT = ".claude/scripts/publish-plan.sh";
+/**
+ * 計画を置くスクリプト。**プラグインの中の相対パス**（2026-09-06 に移した）。
+ *
+ * 以前は `.claude/scripts/publish-plan.sh`（対象リポジトリからの相対）だったが、
+ * **配布物がプラグインに移って対象リポジトリには 1 バイトも置かなくなった**ので、
+ * この文字列だけでは Claude が辿り着けない —— 絶対パスは環境ごとに違う
+ * （`~/.claude/plugins/…`）。
+ *
+ * **`SessionStart` の hook が絶対パスを文脈へ入れる**（`plugin/plugins/offdesk/
+ * hooks/hooks.json`）。プロンプトはそれを読めと言うだけで、パスを固定しない。
+ */
+export const PUBLISH_PLAN_SCRIPT = "scripts/publish-plan.sh";
 
 /**
  * 計画を組み立てる作業領域（要件 `F-E1`）。
@@ -21,6 +32,27 @@ export const PUBLISH_PLAN_SCRIPT = ".claude/scripts/publish-plan.sh";
  * 正本は R2 に置いた方（`/p/<plan_id>/`）で、ここはそこへ送る前の下書き。
  */
 export const PLAN_WORK_DIR = "/tmp/offdesk-plans";
+
+/** offdesk が出すツール。**この 3 つだけ**（`mcp/server.ts` の `TOOLS` と対）。 */
+export const OFFDESK_TOOLS = ["ask_human", "ask_wait", "report"] as const;
+
+/**
+ * ツール一覧に出る名前の形（承認 hook の matcher）。
+ *
+ * **2 通りある**（2026-09-05 に cloud session で実測）:
+ *
+ *     mcp__offdesk__ask_human                  repo の .mcp.json 経由
+ *     mcp__plugin_offdesk_offdesk__ask_human   プラグイン経由
+ *
+ * プラグインが出す MCP サーバーは `plugin_<プラグイン名>_<サーバー名>` で
+ * 名前空間が付く（衝突を避けるため）。**サーバー名を変えても消せない。**
+ *
+ * **両方を拾う。** 承認する人がいない routine では、この hook が
+ * `permissionDecision: "allow"` を返さないと `ask_human` の呼び出しで止まる ——
+ * **症状は「Discord が無音」で、エラーは出ない。** 片方だけにすると、
+ * 経路を変えた瞬間に静かに詰まる。
+ */
+export const OFFDESK_TOOL_MATCHER = "mcp__(plugin_offdesk_)?offdesk__.*";
 
 export const isResendQuestion = (question: unknown): boolean =>
   typeof question === "string" && question.trim() === RESEND_QUESTION;
@@ -74,9 +106,10 @@ export const SERVER_INSTRUCTIONS = `offdesk は Discord にいる依頼者との
 ## 長い文書は URL にして渡します
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
+**セッションの始めに \`publish-plan.sh\` の場所が知らされています**（\`${PUBLISH_PLAN_SCRIPT}\`
+で終わる絶対パス）。\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
 
-    ${PUBLISH_PLAN_SCRIPT} <run_key> ${PLAN_WORK_DIR}/<名前>
+    <知らされたパス> <run_key> ${PLAN_WORK_DIR}/<名前>
 
 を実行してください。**依頼者が読む URL を 1 行だけ返します。**
 その 1 行を \`ask_human\` の \`question\` に貼ってください。
@@ -102,9 +135,19 @@ payload の 1 行目は \`OFFDESK-\` で始まる実行キー（run_key）です
 この値は offdesk の台帳と転写ログを突き合わせる印なので、**書き換えないでください。**
 offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` に渡します。
 
+## offdesk のツールは 3 つです
+
+\`${OFFDESK_TOOLS.join("` / `")}\` の 3 つだけです。
+
+**ツール一覧では \`mcp__\` で始まる長い名前が付きます。** 接頭辞は繋ぎ方で変わるので
+（\`mcp__offdesk__ask_human\` のこともあれば \`mcp__plugin_offdesk_offdesk__ask_human\`
+のこともあります）、**一覧に出ている名前をそのまま使ってください。**
+一覧にどれも無ければ offdesk に繋がっていないので、Discord へは何も届きません
+—— そのときは無理に進めず、繋がっていないことを PR や通知で伝えてください。
+
 ## 人に聞く
 
-判断が要ることが出たら、**勝手に決めずに \`mcp__offdesk__ask_human\` を呼んでください。**
+判断が要ることが出たら、**勝手に決めずに \`ask_human\` を呼んでください。**
 依頼者は Discord のスレッドにいます。答えが返るまでその呼び出しは戻りませんが、
 **待っている間トークンは消費しません。待つことを惜しまないでください。**
 
@@ -129,7 +172,7 @@ offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` �
 
 ## 進捗を伝える
 
-長い作業の途中では \`mcp__offdesk__report\` で依頼者に見せてください。
+長い作業の途中では \`report\` で依頼者に見せてください。
 
 - \`progress\` … 作業中の報告。**答えを待ちません**
 - \`blocked\` … 自分では進めなくなった
@@ -150,12 +193,13 @@ offdesk のツールを呼ぶときは、この値をそのまま \`run_key\` �
 PR の URL は \`ask_human\` の \`question\` に含めて依頼者へ伝えてください。
 
 実装計画のような長い markdown は Discord に入りません（1 通 2,000 字）。
-リポジトリに \`${PUBLISH_PLAN_SCRIPT}\` があれば、\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
+**セッションの始めに \`publish-plan.sh\` の場所が知らされています**（\`${PUBLISH_PLAN_SCRIPT}\`
+で終わる絶対パス）。\`${PLAN_WORK_DIR}/<名前>/\` に書いてから
 
-    ${PUBLISH_PLAN_SCRIPT} <run_key> ${PLAN_WORK_DIR}/<名前>
+    <知らされたパス> <run_key> ${PLAN_WORK_DIR}/<名前>
 
 を実行し、**返ってきた URL の 1 行だけ**を \`ask_human\` の \`question\` に貼ってください。
 **本文をツールの引数に載せないでください**（計画は 200KB を超え、そのまま再出力することになります）。
 **リポジトリの中に計画を置かないでください** —— 上のパスは作業領域で、commit の対象になりません。
-スクリプトが無いリポジトリでは、要点だけを \`ask_human\` で伝えてください。
+場所が知らされていなければ、要点だけを \`ask_human\` で伝えてください。
 `;

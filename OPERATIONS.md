@@ -8,6 +8,30 @@
 
 ---
 
+## 0-0. offdesk 自身が marketplace
+
+**対象リポジトリには 1 バイトも置かない**（2026-09-06）。以前は 4 ファイルを写す運用（`repo-template/`）だった。
+
+```txt
+offdesk（public）
+  .claude-plugin/marketplace.json   ← マニフェスト（**ルート必須**）
+  plugin/plugins/offdesk/           ← プラグインの実物
+        ↓ environment の setup script が install（§7-1）
+cloud session
+```
+
+**鍵もミラーも CI の publish も無い。** 一時は public のミラー（`offdesk-plugin`）へ CI が押す形にしていたが、**別リポジトリへ push するには鍵が要る** —— `GITHUB_TOKEN` は走っているリポジトリにしか権限が無く、OIDC も GitHub 自身のトークンには変換されない。offdesk を public にすれば**押す先そのものが消える**ので、**ずれようがなくなる。**
+
+**このリポジトリを private に戻すとプラグインが配れなくなる。** cloud session は routine の `sources` の外を**認証なしで**取りに行くため。戻すなら、公開のミラーと鍵を用意し直すことになる。
+
+**`plugin/` の中は英語だけで書く**（このリポジトリの他の場所は日本語のまま）。誰の cloud session にも入りうるため —— `additionalContext` と `permissionDecisionReason` はモデルとログに出る文でもある。`release/pair-consistency.test.ts` が日本語の混入を止める。
+
+**`hooks.json` のコマンドはシェルの 1 行。** JSON の中に埋めた `printf '…'` なので、**アポストロフィが 1 つ混ざるだけで構文エラー**になる（英語化のときに `repository's` で実際に踏んだ）。落ちてもセッションは進むので、症状は「承認が出ない」「残量が出ない」だけ —— `release/hook-template.test.ts` が**全部のコマンドを実際に走らせて**止める。
+
+> **ツール名の接頭辞が経路で変わる**（2026-09-05 に実測）。プラグイン経由は `mcp__plugin_offdesk_offdesk__ask_human`、repo の `.mcp.json` 経由は `mcp__offdesk__ask_human`。承認 hook の matcher は両方を拾う（`OFFDESK_TOOL_MATCHER`）—— 片方だけにすると**承認が効かず routine が静かに詰まる**（Discord が無音になるだけでエラーは出ない）。
+
+---
+
 ## 0. 秘密がどこにあるか
 
 **offdesk の秘密は 3 か所にしか無い。**
@@ -19,9 +43,7 @@
 | claude.ai の cloud environment | `OFFDESK_TOKEN`（Worker と同じ値） | cloud session の中の MCP クライアントと hook |
 
 **`.env.local` が 2 本ある理由は分離**（plans/security.md 脅威 4）。
-`@cloudflare/vite-plugin` は `apps/app/.env.local` の中身を
-`dist/<worker>/.dev.vars` へ**平文で書き出す**ので、Worker が要らない秘密を
-そちらに置かない。
+`@cloudflare/vite-plugin` は `apps/app/.env.local` の中身を `dist/<worker>/.dev.vars` へ**平文で書き出す**ので、Worker が要らない秘密をそちらに置かない。
 
 ### Worker が受け取る値と、欠けたときの症状
 
@@ -54,8 +76,7 @@ gh secret set OFFDESK_TOKEN
 #    apps/app/.env.local の該当行を書き換える
 
 # 3. 配り先があるものは同時に
-#    OFFDESK_TOKEN … claude.ai の cloud environment にも同じ値を入れる
-#    （片方だけ変えると MCP が全部 401 になる）
+#    OFFDESK_TOKEN … claude.ai の cloud environment にも同じ値を入れる（片方だけ変えると MCP が全部 401 になる）
 
 # 4. デプロイ（main への push で走る）
 git push
@@ -65,20 +86,29 @@ git push
 
 ## 1. プロジェクトを増やす
 
-**1 チャンネル = 1 プロジェクト = 1 リポジトリ（モノレポ）**が既定（要件 §9-3。崩すと作業ディレクトリが上がって `.mcp.json` が読まれない）。
+**対象リポジトリには 1 バイトも置きません**（2026-09-06 に確立。§7-1 のプラグイン）。
+以前は 4 ファイルを写す運用でした。
 
-1. **claude.ai で routine を作る**。Repositories に対象リポジトリを 1 本だけ入れる（空だとクローンが無く、offdesk のツールが 1 つも見つからない）
-2. プロンプトは `pnpm routine:prompt` の出力をそのまま貼る
-3. **Discord にチャンネルを作る**（bot が見えること）
-4. **対象リポジトリに `repo-template/` の中身を commit する**（**4 ファイル**）
-   —— `.mcp.json` / `.claude/settings.json` / `.claude/hooks/offdesk-hook.sh` /
-   `.claude/scripts/publish-plan.sh`。**`.gitignore` には何も足さない**
-   （計画の下書きは `/tmp/offdesk-plans/` に書かれるので、リポジトリに何も増えない）
+1. **claude.ai で routine を作る**。Repositories に対象リポジトリを 1 本だけ入れる
+   （空だとクローンが無く、offdesk のツールが 1 つも見つからない）
+2. **environment に `offdesk` を選ぶ**（§7 の設定が入っている方）。
+   **新しい環境を作らない** —— 作ると setup script も環境変数も空なので、
+   ツールが 1 つも載らない
+3. プロンプトは `pnpm routine:prompt` の出力をそのまま貼る
+4. **Discord にチャンネルを作る**（bot が見えること）
 5. `projects.json` に 1 件足す（形は `projects.example.json`）
-6. `pnpm projects:sync`
+6. `gh secret set PROJECTS_JSON < projects.json` → GitHub Actions の
+   **`projects sync`** を `dry_run=false` / `register_commands=true` /
+   `guild_id=<サーバー id>` で回す
 7. `/projects` の画面に出ること・トークンが `•••• ****` で出ることを見る
+8. Discord で `/offdesk` の選択肢に出ることを見る（**`register_commands` が要る**
+   —— 選択肢は登録時に焼き込まれる）
 
 **`projects.json` は commit されない**（`.gitignore`）。fire トークンが入るため。
+
+> **リポジトリは空にしないこと。** コミット 0 のリポジトリはデフォルトブランチが
+> 無く、clone した先に HEAD が無いので、プラグインとは無関係な理由で失敗する。
+> `README.md` 1 枚でよい。
 
 ---
 
@@ -181,6 +211,65 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 | 環境変数 | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0` | 質問を出した直後に Claude が**勝手に先へ進む**（2 分でツール呼び出しが背後へ回る） |
 | 環境変数 | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=3600000` | **5 分 00 秒ちょうどで握りが落ちる**（`ASK_HOLD_MS` より大きくする） |
 
+### 7-1. Setup script（プラグインを入れる。**これが唯一の入口**）
+
+**対象リポジトリに 1 バイトも置かずに offdesk のツールを載せる仕組み。**
+environment の **Setup script** 欄に貼る。
+
+```bash
+#!/bin/bash
+# offdesk のプラグインを入れる（対象リポジトリには 1 バイトも置かない）。
+# 版: 1   ← プラグインを更新したらこの数字を上げる（キャッシュが作り直される）
+
+set -u
+
+# **root で走るので HOME が session と違うことがある。** 両方に入れて取りこぼさない。
+for home in /home/user /root; do
+  [ -d "$home" ] || continue
+  HOME="$home" claude plugin marketplace add linto-dev-collections/offdesk || true
+  HOME="$home" claude plugin install offdesk@offdesk || true
+done
+
+exit 0
+```
+
+**3 つの制約を織り込んである。** 素の 2 行に戻すと壊れる:
+
+| 制約 | 対応 |
+| --- | --- |
+| **非ゼロで終わるとセッションが起動しない** | `\|\| true` と `exit 0`。marketplace が既に登録済みで 2 回目に非ゼロを返した瞬間、**セッションが起動しなくなる** |
+| **root として走る** | `HOME` を明示。root の `$HOME` は `/root` だが session の作業場所は `/home/user/…` —— `~/.claude/plugins/` に入れないと Claude Code が見つけない |
+| 5 分以内 | 問題なし（git の fetch 2 回） |
+
+### 7-2. プラグインを更新したら「版」を上げる
+
+**setup script は毎回走らない。** 環境のキャッシュが効く:
+
+```txt
+1 回目の session  → setup script が走る → プラグインが入る → スナップショット
+2 回目以降        → スナップショットから起動（setup script は走らない）
+```
+
+キャッシュが作り直されるのは **setup script を変えたとき / 許可ドメインを変えた
+とき / 約 7 日で期限切れ**のときだけ。**`plugin/` を直しても、
+放っておくと最長 1 週間は古い版が使われる。**
+
+**直したら `# 版: N` の数字を上げて保存する。** それだけでキャッシュが作り直される。
+
+### 7-3. claude.ai のアカウントにプラグインを入れない
+
+**入れても効かず、将来 2 つ載る危険がある。**
+
+公式ドキュメントは「アカウントで有効にしたプラグインは cloud session の
+`~/.claude/plugins/synced/` に降りてくる」と書いているが、**この組織では
+降りてこない**（2026-09-05 に実測。ディレクトリとバケットの印は作られるのに
+中身が空 —— 同期の機構はアカウントを解決したうえで 0 件を配っている。
+`claude_team` の `user` ロールなので組織の方針で止まっている可能性が高い）。
+
+もし将来有効になると **同じプラグインが 2 つ載る**（`offdesk@synced` と
+`offdesk@offdesk`）—— MCP サーバーが 2 系統出て hook が 2 回鳴る。
+壊れはしないが、切り分けの邪魔になる。**入口は setup script 1 つに保つ。**
+
 **切り分けは「存在しない `run_key` で `ask_human` を 1 回だけ呼ばせる」のが速い**
 —— Discord に触れずに、許可ドメイン・環境変数・MCP 認証・ツール発見・承認までを一度に確かめられる。
 
@@ -229,8 +318,9 @@ wrangler d1 list --profile <profile>
 | --- | --- |
 | スレッドに書いても何も起きない | `/operations` の Gateway の状態（§3） |
 | コマンドが届かない | Developer Portal の Interactions Endpoint URL（§7） |
-| MCP のツールが 1 つも見つからない | routine の Repositories と `.mcp.json`（§1 の 4） |
-| 承認待ちで固まる | `.claude/settings.json` の `PreToolUse`（`repo-template/` から写す） |
+| MCP のツールが 1 つも見つからない | **environment が `offdesk` か**（§1 の 2）。次に `claude plugin list` が空でないか（§7-1 の setup script）。空なら setup script を保存し直してキャッシュを作り直す |
+| プラグインを直したのに古い挙動 | 環境のキャッシュ。**`# 版: N` を上げる**（§7-2） |
+| 承認待ちで固まる | プラグインの `hooks/hooks.json` の `PreToolUse`（§7-1 の setup script が入っているか） |
 | 5 分ちょうどで握りが落ちる | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`（§7） |
 | 質問の直後に Claude が先へ進む | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`（§7） |
 | `queued` のまま止まっている | 10 分で cron が `failed` に畳む。畳まれたら書き直せば新しい run が立つ |

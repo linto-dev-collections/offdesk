@@ -15,12 +15,12 @@ const REPO_ROOT = path.join(import.meta.dirname, "../../../..");
 const readSource = (relative: string): string =>
   readFileSync(path.join(REPO_ROOT, relative), "utf8");
 
-const SCRIPT_PATH = path.join("repo-template", PUBLISH_PLAN_SCRIPT);
+const SCRIPT_PATH = path.join("plugin/plugins/offdesk", PUBLISH_PLAN_SCRIPT);
 const SCRIPT = readSource(SCRIPT_PATH);
 
 describe("置き場が案内と一致する", () => {
   /** **`PUBLISH_PLAN_SCRIPT` が正本。** 文言に直書きすると片方だけ直る。 */
-  it("repo-template に同じパスでファイルがある", () => {
+  it("plugin に同じパスでファイルがある", () => {
     expect(existsSync(path.join(REPO_ROOT, SCRIPT_PATH))).toBe(true);
   });
 
@@ -108,7 +108,7 @@ describe("`$var` の直後に全角文字を置かない", () => {
   */
   it.each([
     ["publish-plan.sh", SCRIPT_PATH],
-    ["offdesk-hook.sh", "repo-template/.claude/hooks/offdesk-hook.sh"],
+    ["offdesk-hook.sh", "plugin/plugins/offdesk/hooks/offdesk-hook.sh"],
   ])("%s に裸の $var ＋ 全角の並びが無い", (_label, relative) => {
     const bad = [
       ...readSource(relative).matchAll(

@@ -19,7 +19,7 @@ import { env } from "cloudflare:workers";
 */
 
 /** テストで使う持ち主のメール。`vitest.config.ts` の allowlist と揃えてある。 */
-export const OWNER_EMAIL = "offdesk.me@gmail.com";
+export const OWNER_EMAIL = "owner@example.com";
 export const OWNER_NAME = "offdesk owner";
 
 /**
