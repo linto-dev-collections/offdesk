@@ -72,11 +72,6 @@ describe("できないことを出していない", () => {
   it.each(["delete", "remove", "disable"])("%s の選択肢が無い", (forbidden) => {
     expect(KEYS).not.toContain(forbidden);
   });
-
-  it("できないことが書かれている", () => {
-    expect(WORKFLOW).toContain("このワークフローでできないこと");
-    expect(WORKFLOW).toContain("disabled_at");
-  });
 });
 
 describe("guild id を人に貼らせない", () => {

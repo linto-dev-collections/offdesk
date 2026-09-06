@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 何をしますか
+        description: 何をしますか（消す・止める・名前の変更はできません。OPERATIONS.md §2）
         type: choice
         required: true
         default: "check: 台帳に書かない。送る中身と、トークンが通るかだけ見る"
