@@ -5,6 +5,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ProjectSummary } from "@offdesk/contract";
 import { Badge } from "@workspace/ui/components/ui/badge";
+import { Button } from "@workspace/ui/components/ui/button";
 import {
   Table,
   TableBody,
@@ -55,20 +56,27 @@ const repoLabel = (repoUrl: string): string => {
  * ない。テーブル定義書 §4-1・要件 §11 の 9）—— run ごとの使用量は run 詳細で
  * モデル名つきで出る。
  *
- * **編集の口を持たない**（要件 §3-2 の「CRUD は第2フェーズ」）。
- * できないことを画面に書くのは呼ぶ側の仕事（`_authed/projects.tsx`）。
+ * **編集の口をここに持たせない。** 押されたことを呼ぶ側（`_authed/projects.tsx`）へ
+ * 渡すだけで、確認も保存もあちらが持つ —— `ConfirmDialog` と同じ構えで、
+ * 「消し終わったら閉じる」を呼ぶ側から命令できる形を保つ。
  */
 export const ProjectTable = ({
   items,
+  onEdit,
+  onToggleDisabled,
+  busy,
 }: {
   readonly items: readonly ProjectSummary[];
+  readonly onEdit: (project: ProjectSummary) => void;
+  readonly onToggleDisabled: (project: ProjectSummary) => void;
+  readonly busy: boolean;
 }) => {
   if (items.length === 0) {
     return (
       <EmptyState
         icon={FolderLibraryIcon}
         title="プロジェクトがありません"
-        hint="projects.json を書いて pnpm projects:sync で投入してください"
+        hint="「増やす」から登録してください"
       />
     );
   }
@@ -84,6 +92,7 @@ export const ProjectTable = ({
             <TableHead>fire の宛先</TableHead>
             <TableHead>トークン</TableHead>
             <TableHead>状態</TableHead>
+            <TableHead className="sr-only">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -133,6 +142,30 @@ export const ProjectTable = ({
                     有効
                   </Badge>
                 )}
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onEdit(project)}
+                    disabled={busy}
+                  >
+                    直す
+                  </Button>
+                  {/*
+                    **「消す」は無い。** `runs.project_id` が `RESTRICT` の外部キーなので
+                    run が 1 本でもあるプロジェクトは構造的に消せない（要件 `F-H5`）。
+                  */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onToggleDisabled(project)}
+                    disabled={busy}
+                  >
+                    {project.disabled ? "戻す" : "止める"}
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}

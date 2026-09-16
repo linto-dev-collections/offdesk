@@ -154,7 +154,7 @@ const handleCommand = async (
   if (resolution.kind === "no-binding") {
     return ephemeral(
       projects.length === 0
-        ? "プロジェクトが登録されていません。projects:sync で投入してください。"
+        ? "プロジェクトが登録されていません。画面の /projects から増やしてください。"
         : `このチャンネルに紐付いたプロジェクトがありません。project を指定してください: ${projectNames(projects)}`,
     );
   }

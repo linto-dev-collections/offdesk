@@ -2,7 +2,7 @@ export type {
   FireRoutineDeps,
   FireRoutineInput,
 } from "./adapters/fire-routine.ts";
-export { fireRoutine } from "./adapters/fire-routine.ts";
+export { checkFireToken, fireRoutine } from "./adapters/fire-routine.ts";
 export type { Db } from "./client.ts";
 export { createDb } from "./client.ts";
 export type { EncryptedFireToken } from "./crypto/fire-token.ts";
@@ -60,11 +60,17 @@ export type {
   UpsertProjectInput,
 } from "./repositories/project.ts";
 export {
+  findAnyProjectByChannel,
   findProjectByChannel,
   findProjectById,
+  findProjectByName,
+  findProjectWithMaskById,
   listProjects,
   listProjectsWithMask,
+  replaceFireCredential,
+  setProjectDisabled,
   takeFireToken,
+  updateProjectKeepingCredential,
   upsertProjectWithCredential,
 } from "./repositories/project.ts";
 export type {

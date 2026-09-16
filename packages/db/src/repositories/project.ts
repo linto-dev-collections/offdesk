@@ -95,6 +95,26 @@ export const listProjectsWithMask = async (
   }));
 };
 
+/** 書いたあとに 1 件だけ引き直す（画面へ返す姿を作るため）。 */
+export const findProjectWithMaskById = async (
+  db: Db,
+  id: string,
+): Promise<ProjectWithMaskRecord | null> => {
+  const [row] = await db
+    .select({ ...PROJECT_COLUMNS, last4: projectFireCredentials.last4 })
+    .from(projects)
+    .leftJoin(
+      projectFireCredentials,
+      eq(projectFireCredentials.projectId, projects.id),
+    )
+    .where(eq(projects.id, id))
+    .limit(1);
+
+  return row === undefined
+    ? null
+    : { ...toProjectRecord(row), fireTokenLast4: row.last4 };
+};
+
 export const findProjectById = async (
   db: Db,
   id: string,
@@ -182,6 +202,141 @@ export const upsertProjectWithCredential = async (
   ]);
 
   return { projectId, inserted: existing === undefined };
+};
+
+/**
+ * 名前で引く。**作る前の衝突検査**（要件 `F-H4`）に使う。
+ *
+ * **無効なものも引く。** 止めたプロジェクトの名前を再利用させると、
+ * `runs` が指している古い行と新しい行の区別が名前からは付かなくなる。
+ */
+export const findProjectByName = async (
+  db: Db,
+  name: string,
+): Promise<ProjectRecord | null> => {
+  const [row] = await db
+    .select(PROJECT_COLUMNS)
+    .from(projects)
+    .where(eq(projects.name, name))
+    .limit(1);
+
+  return row === undefined ? null : toProjectRecord(row);
+};
+
+/**
+ * チャンネルで引く。**無効なものも含む**（`findProjectByChannel` との違い）。
+ *
+ * あちらは「この発言はどのプロジェクトか」を引く hot path なので有効な行だけを見るが、
+ * こちらは衝突検査 —— **止めたプロジェクトが握っているチャンネルも塞がっている**
+ * （`projects_channel_uidx` は `disabled_at` を見ない）。
+ */
+export const findAnyProjectByChannel = async (
+  db: Db,
+  channelId: string,
+): Promise<ProjectRecord | null> => {
+  const [row] = await db
+    .select(PROJECT_COLUMNS)
+    .from(projects)
+    .where(eq(projects.discordChannelId, channelId))
+    .limit(1);
+
+  return row === undefined ? null : toProjectRecord(row);
+};
+
+/**
+ * **資格情報に触らずに**プロジェクトの行だけを書き換える。
+ *
+ * **`upsertProjectWithCredential` と分けてあるのが要点。** あちらは必ず暗号文を
+ * 上書きするので、**チャンネルを変えるだけでもトークンを渡さないといけない** ——
+ * claude.ai のトークンは発行時に 1 度しか表示されず、再発行すると前のものが
+ * 失効するので、**据え置きの経路が無いとローテーションを強制することになる**
+ * （`ProjectUpdateInput` の `fireToken` が任意なのはこのため）。
+ *
+ * 名前は引数に無い。**一致の鍵なので変えない**（OPERATIONS §2）。
+ */
+export const updateProjectKeepingCredential = async (
+  db: Db,
+  input: {
+    readonly id: string;
+    readonly discordChannelId: string;
+    readonly repoUrl: string;
+    readonly fireUrl: string;
+  },
+): Promise<boolean> => {
+  const result = await db
+    .update(projects)
+    .set({
+      discordChannelId: input.discordChannelId,
+      repoUrl: input.repoUrl,
+      fireUrl: input.fireUrl,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, input.id))
+    .returning({ id: projects.id });
+
+  return result.length > 0;
+};
+
+/**
+ * トークンだけを差し替える。**プロジェクトの行には触らない。**
+ *
+ * `projectId` は外部キーなので、存在しない id で呼ぶと D1 が落とす ——
+ * 呼ぶ側（`updateProject`）が先に行の有無を確かめている。
+ */
+export const replaceFireCredential = async (
+  db: Db,
+  projectId: string,
+  encrypted: EncryptedFireToken,
+): Promise<void> => {
+  await db
+    .insert(projectFireCredentials)
+    .values({
+      projectId,
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      keyVersion: encrypted.keyVersion,
+      last4: encrypted.last4,
+    })
+    .onConflictDoUpdate({
+      target: projectFireCredentials.projectId,
+      set: {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        keyVersion: encrypted.keyVersion,
+        last4: encrypted.last4,
+        updatedAt: new Date(),
+      },
+    });
+};
+
+/**
+ * 止める・戻す（要件 `F-H5`）。**`disabled_at` を書く唯一の関数。**
+ *
+ * **2026-09-16 まで、この列を書くコードは 1 行も無かった** —— 読む側
+ * （`listProjects` の `IS NULL`・`decideInbound` の手前・`/offdesk` の選択肢）は
+ * 揃っていたのに、止めるには `wrangler d1 execute` を手で打つしかなかった
+ * （OPERATIONS §2 の「止める・消す」）。
+ *
+ * **消す口は作らない。** `runs.project_id` が `RESTRICT` の外部キーなので、
+ * run が 1 本でもあるプロジェクトは構造的に消せない —— 消せるようにすると
+ * run の履歴ごと消すことになる。
+ */
+export const setProjectDisabled = async (
+  db: Db,
+  id: string,
+  disabled: boolean,
+  nowMs: number,
+): Promise<boolean> => {
+  const result = await db
+    .update(projects)
+    .set({
+      disabledAt: disabled ? new Date(nowMs) : null,
+      updatedAt: new Date(nowMs),
+    })
+    .where(eq(projects.id, id))
+    .returning({ id: projects.id });
+
+  return result.length > 0;
 };
 
 /**

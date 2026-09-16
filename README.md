@@ -27,11 +27,10 @@ pnpm install
 | --- | --- |
 | `pnpm dev` | ローカル開発（<http://localhost:5173>）。miniflare の D1 / R2 / DO |
 | `pnpm build` | 全パッケージのビルド |
-| `pnpm routine:prompt` | routine に貼るプロンプトを出す |
 | `pnpm deploy` | Cloudflare へ（**prod は CI から。手元から出そうとすると止まる**） |
 | `pnpm destroy` | そのステージのリソースを削除（**prod の D1 と R2 は消えない**） |
 
-プロジェクトの投入は GitHub Actions の `projects sync`（OPERATIONS.md §2）。
+プロジェクトの投入は**画面から**（`/projects`。OPERATIONS.md §2）。
 
 ## 静的解析
 

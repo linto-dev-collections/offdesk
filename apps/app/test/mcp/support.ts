@@ -108,15 +108,27 @@ export type SseFrames = {
 };
 
 /**
- * SSE を**閉じるまで**読み切る。握りは応答を送った後に自分で閉じるので、
- * これが返った時点で握りは終わっている。
+ * SSE を読む。`enough` が true を返した時点で**こちらから打ち切る。**
+ *
+ * **「何通来たか」で止められるようにするため**（要件 `N-9` の「時間で待つテストを
+ * 書かない」）。握りの 1 周は D1 を 1 回引くので、**上限までに何通流れるかは
+ * 機械の速さで変わる** —— 2026-09-17 に CI で踏んだ（手元 11 通・CI 1 通）。
+ * 数で止めれば、速い機械では速く終わり、遅い機械でも落ちない。
+ *
+ * 打ち切ると `pump` の次の書き込みが落ちる。**それは「相手が切った」の経路**
+ * （`hold.ts` の catch）なので、握りはそこで諦めて閉じる —— `settle()` は
+ * 上限を待たずに返る。
  */
-export const readSse = async (response: Response): Promise<SseFrames> => {
+export const readSseUntil = async (
+  response: Response,
+  enough: (frames: SseFrames) => boolean,
+): Promise<SseFrames> => {
   const body = response.body;
   if (body === null) throw new Error("SSE の本文がありません");
 
   const messages: Record<string, unknown>[] = [];
   const comments: string[] = [];
+  const frames: SseFrames = { messages, comments };
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -143,10 +155,24 @@ export const readSse = async (response: Response): Promise<SseFrames> => {
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     drain();
+    if (enough(frames)) {
+      await reader.cancel();
+      break;
+    }
   }
 
-  return { messages, comments };
+  return frames;
 };
+
+/**
+ * SSE を**閉じるまで**読み切る。握りは応答を送った後に自分で閉じるので、
+ * これが返った時点で握りは終わっている。
+ *
+ * **「1 通も来ない」を見るテストはこちらしか使えない。** 不在は待つ以外に
+ * 確かめようがないので、あちらの `enough` では止められない。
+ */
+export const readSse = (response: Response): Promise<SseFrames> =>
+  readSseUntil(response, () => false);
 
 /** 握りが最後に返した JSON-RPC 応答（progress 通知ではない方）。 */
 export const finalResult = (

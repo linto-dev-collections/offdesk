@@ -4,7 +4,6 @@ import { bearerMatches } from "@offdesk/domain";
 import { getHealth } from "@offdesk/usecase";
 import { RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
-import { admin } from "./admin/projects.ts";
 import { handleInteraction } from "./discord/interactions.ts";
 import { verifyDiscordSignature } from "./discord/verify.ts";
 import { type AppBindings, assertEnv, type WorkerEnv } from "./env.ts";
@@ -43,13 +42,11 @@ app.on(["GET", "POST"], "/api/auth/*", (c) =>
   createAuth(c.env).handler(c.req.raw),
 );
 
-app.route("/api/admin", admin);
-
 /*
   MCP（P3a）。**認証を握る前に行う**（plans/security.md 脅威 16）——
   先にストリームを開いてから検査すると、その時点で資源を使っている。
 
-  判定は `/api/admin/*` と同じ `bearerMatches` の 1 か所（脅威 2 の「判定は 1 箇所」）。
+  判定は `/hooks/*` や `/plans/*` と同じ `bearerMatches` の 1 か所（脅威 2 の「判定は 1 箇所」）。
   `OFFDESK_TOKEN` が未設定・空文字なら誰も通らない（要件 `I-2`）。
   **失敗時のログに値を出さない。**
 */

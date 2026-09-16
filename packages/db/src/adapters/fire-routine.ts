@@ -1,5 +1,10 @@
-import type { FireOutcome } from "@offdesk/domain";
-import { checkFireUrl, MAX_FIRE_TEXT_LENGTH } from "@offdesk/domain";
+import type { FireOutcome, FireTokenVerdict } from "@offdesk/domain";
+import {
+  checkFireUrl,
+  FIRE_TOKEN_UNREACHABLE,
+  fireTokenVerdictOf,
+  MAX_FIRE_TEXT_LENGTH,
+} from "@offdesk/domain";
 
 /*
   routine を起こす。**fire トークンを載せる唯一の場所**（plans/security.md 脅威 3）。
@@ -140,4 +145,50 @@ export const fireRoutine = async (
   }
 
   return { ok: true, session: { ccSessionId, ccSessionUrl } };
+};
+
+/**
+ * fire トークンが本当に通るかを、**セッションを作らずに**確かめる（要件 `F-H3`）。
+ *
+ * 判定そのものは `fireTokenVerdictOf`（domain の純粋関数）が持つ。ここは
+ * **わざと上限を超える `text` を組んで投げる**だけ —— 上限超えは認証のあとで
+ * 弾かれるので、`400` なら認証は通っている。
+ *
+ * **`projects.json` と CLI を畳んだので、これを呼ぶのは Worker だけになった**
+ * （2026-09-16）。CLI に在った頃と違い、平文のトークンは HTTPS の本文で
+ * 1 度だけ運ばれ、ここを抜けたあとは暗号文になる。
+ *
+ * **宛先は `checkFireUrl` を通してから組む**（脅威 3 の 1 層目）。画面の Zod と
+ * D1 の CHECK をすり抜けた値でも、ヘッダを組む前にここで止まる。
+ */
+export const checkFireToken = async (
+  deps: { readonly fetch: typeof fetch },
+  input: { readonly fireUrl: string; readonly fireToken: string },
+): Promise<FireTokenVerdict> => {
+  if (checkFireUrl(input.fireUrl) !== null) {
+    return { ok: false, kind: "routine_not_found" };
+  }
+
+  let response: Response;
+  try {
+    response = await deps.fetch(input.fireUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.fireToken}`,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-beta": FIRE_BETA_HEADER,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ text: "x".repeat(MAX_FIRE_TEXT_LENGTH + 1) }),
+    });
+  } catch (error) {
+    // **応答も宛先も載せない**（脅威 12）。切り分けに要るのは「届かなかった」だけ。
+    console.warn("[fire] トークンの確認に届きませんでした", {
+      error:
+        error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+    });
+    return FIRE_TOKEN_UNREACHABLE;
+  }
+
+  return fireTokenVerdictOf(response.status);
 };

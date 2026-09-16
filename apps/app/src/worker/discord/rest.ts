@@ -91,6 +91,54 @@ export const fetchChannelName = async (
   return typeof name === "string" && name !== "" ? name : null;
 };
 
+/**
+ * そのサーバーで **bot が見えているテキストチャンネル**（計画: 18 桁の
+ * スノーフレークを手で貼らせない）。
+ *
+ * **返ってくるのは bot に `View Channels` があるものだけ**（Discord がそう絞る）——
+ * つまり**一覧に出ること自体が「bot が見えている」の確認**になる。
+ * OPERATIONS §2 の「bot が見えること」という目視の手順がこれで消える。
+ *
+ * **スレッドは除く**（`isThreadChannel`）。プロジェクトが紐付くのは親チャンネルで、
+ * スレッドは run 1 本に対応する（用語 §2）。
+ *
+ * **引けなければ `null`。** `DISCORD_GUILD_ID` も `DISCORD_BOT_TOKEN` も
+ * 欠けても他が動く値なので、ここで投げると**チャンネルが引けないだけで
+ * フォームごと開かなくなる。**
+ */
+export const listGuildTextChannels = async (
+  config: DiscordRestConfig,
+  guildId: string,
+): Promise<
+  readonly { readonly id: string; readonly name: string }[] | null
+> => {
+  const result = await call(config, `/guilds/${guildId}/channels`, {
+    method: "GET",
+    auth: "bot",
+  });
+  if (!result.ok) return null;
+  if (!Array.isArray(result.body)) return null;
+
+  const TEXT_CHANNEL = 0;
+  const ANNOUNCEMENT_CHANNEL = 5;
+  const postable = new Set([TEXT_CHANNEL, ANNOUNCEMENT_CHANNEL]);
+
+  return result.body
+    .filter((raw): raw is { id: string; name: string; type: number } => {
+      if (typeof raw !== "object" || raw === null) return false;
+      const row = raw as { id?: unknown; name?: unknown; type?: unknown };
+      return (
+        typeof row.id === "string" &&
+        typeof row.name === "string" &&
+        typeof row.type === "number" &&
+        postable.has(row.type) &&
+        !isThreadChannel(row.type)
+      );
+    })
+    .map((row) => ({ id: row.id, name: row.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
 export const postMessage = (
   config: DiscordRestConfig,
   channelId: string,

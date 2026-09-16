@@ -295,7 +295,7 @@ describe("入力の検査", () => {
     );
 
     const body = (await response.json()) as { data: { content: string } };
-    expect(body.data.content).toContain("projects:sync");
+    expect(body.data.content).toContain("/projects");
     await settle();
   });
 });

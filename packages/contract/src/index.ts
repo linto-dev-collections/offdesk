@@ -22,12 +22,19 @@ export {
   ProjectNamesOutput,
   ProjectSummary,
 } from "./project.ts";
-export {
-  FIRE_URL_PREFIX,
-  ProjectSyncEntry,
-  ProjectSyncInput,
-  ProjectSyncResult,
-} from "./project-sync.ts";
+export type {
+  DiscordChannelOption,
+  FireTokenProblem,
+  ProjectChannelsOutput,
+  ProjectCommandsOutput,
+  ProjectConflict,
+  ProjectCreateInput,
+  ProjectDisableInput,
+  ProjectUpdateInput,
+  ProjectWriteOutput,
+  RoutinePromptOutput,
+} from "./project-write.ts";
+export { FIRE_URL_PREFIX } from "./project-write.ts";
 export { safeRedirectPath } from "./redirect.ts";
 export { contract } from "./router.ts";
 export { RPC_PREFIX, rpcUrl } from "./rpc.ts";

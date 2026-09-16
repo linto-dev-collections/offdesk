@@ -44,11 +44,14 @@ export {
 export type {
   FireOutcome,
   FireSession,
+  FireTokenVerdict,
   FireUrlProblem,
 } from "./fire.ts";
 export {
   checkFireUrl,
+  FIRE_TOKEN_UNREACHABLE,
   FIRE_URL_PREFIX,
+  fireTokenVerdictOf,
   hostOf,
   isFireUrlAllowed,
 } from "./fire.ts";

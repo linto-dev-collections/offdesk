@@ -9,11 +9,13 @@
 
 | 置き場 | 何が |
 | --- | --- |
-| GitHub の secret | `ALCHEMY_PASSWORD` / `ALCHEMY_STATE_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` ＋ 下の表の値 ＋ `PROJECTS_JSON` |
+| GitHub の secret | `ALCHEMY_PASSWORD` / `ALCHEMY_STATE_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` ＋ 下の表の値 |
 | 手元の `.env.local` 2 本 | 同じ値（ローカル開発用）。ルート = Alchemy CLI だけ／`apps/app/` = Vite・wrangler・Alchemy |
 | claude.ai の cloud environment | `OFFDESK_URL` / `OFFDESK_TOKEN`（§3） |
 
 **`.env.local` が 2 本ある理由**: `@cloudflare/vite-plugin` は `apps/app/.env.local` を `dist/<worker>/.dev.vars` へ平文で書き出す。Worker が要らない秘密をそちらに置かない。
+
+**fire トークン（routine の資格情報）はこの表に無い。** 置き場は D1 の `project_fire_credentials` だけで、平文はどこにも残らない —— 入れるのは `/projects` の画面から 1 回きりで、Worker が受け取ってすぐ `FIRE_TOKEN_KEY` で暗号化する。2026-09-16 まで手元の `projects.json` と GitHub secret の `PROJECTS_JSON` にも平文で在ったが、**両方消した**（§2）。
 
 ### Worker が受け取る値
 
@@ -30,7 +32,7 @@
 | `DISCORD_GUILD_ID` | 画面のリンクが出ない（他は動く） |
 | `OWNER_DISCORD_USER_ID` | 誰も `/offdesk` を使えない |
 | `OFFDESK_TOKEN` | MCP・hooks・計画の置き口が全部 401 |
-| `FIRE_TOKEN_KEY` | 起動できない。**回せない**（変えると既存の暗号文が開かない。回すなら先に全プロジェクトのトークンを再発行して §2 の `update`） |
+| `FIRE_TOKEN_KEY` | 起動できない。**回せない**（変えると既存の暗号文が開かない。回すなら先に全プロジェクトのトークンを再発行して §2 の「直す」） |
 | `PLAN_LINK_SIGNING_KEY` | `/p/*` が 401・`finish` が 503 |
 
 ### 差し替える
@@ -46,29 +48,26 @@ git push                        # 4. main への push でデプロイ
 
 ## 2. プロジェクトを増やす・直す・止める
 
-GitHub Actions の **`projects sync`** を `workflow_dispatch` で回し、**1 つ選ぶ**。
-触るものは**台帳**（D1 の `projects` 表）と **Discord の `/offdesk` の選択肢**の 2 つ。
+**画面でやる**（`/projects`）。`projects.json` も GitHub Actions も要らない（2026-09-16 に畳んだ）。
 
-| 選ぶもの | 台帳 | `/offdesk` | いつ |
-| --- | --- | --- | --- |
-| `check` | 書かない | 触らない | 迷ったら最初にこれ（既定） |
-| `add` | 入れる | **更新する** | 増やすとき |
-| `update` | 書き換える | 触らない | トークン差し替え・チャンネル変更 |
-| `commands` | 触らない | **更新する** | 選択肢がずれた・**option を増やした**（`issue` / `pr` のような欄は登録し直すまで Discord に出ない） |
+台帳（D1 の `projects` 表）と **Discord の `/offdesk` の選択肢**の 2 つが動くが、**選択肢の登録し直しは画面が自動でやる** —— 増やした・止めた・戻したの直後に必ず走る。
 
-**`add` で `/offdesk` の更新が要る**: 選択肢は登録の時点で焼き込まれるので、台帳に入れただけでは Discord に新しい名前が出ない（画面には出るので気づきにくい）。
-
-**`check` が書かないのは台帳だけ。** トークンは実際に Anthropic へ叩いて確かめる（セッションは作らない）。
+**保存の前にトークンを実際に Anthropic へ叩いて確かめる**（セッションは作らない）。形だけ合っている置き換え文字列は Zod をすり抜けるので、実叩きが最後の門。
 
 ### 増やす
 
+**先に claude.ai と Discord の側を作る。** ここは API が無いので画面には移せない（`/v1/claude_code/` の公開 API は `fire` の 1 本だけ）。
+
 1. claude.ai で **routine** を作る。Repositories は対象リポジトリ 1 本だけ
 2. **environment に `offdesk` を選ぶ**（§3。新しい環境を作ると何も載らない）
-3. プロンプトに `pnpm routine:prompt` の出力を貼る
-4. Discord に**チャンネルを作る**（bot が見えること）
-5. `projects.json` に 1 件足して `gh secret set PROJECTS_JSON < projects.json`
-6. `projects sync` を `check` → 中身を読む → `add`
-7. `/projects` に出ること・`/offdesk` の選択肢に出ることを見る
+3. プロンプトを貼る —— **`/projects` の「routine に貼るプロンプト」からコピーする**
+4. routine の **API トリガでトークンを発行**して控える（**1 度しか表示されない**）
+5. Discord に**チャンネルを作る**
+6. `/projects` の **「増やす」**に、名前・チャンネル・リポジトリ・fire の URL・トークンを入れて保存
+
+**チャンネルは一覧から選ぶ。** 並ぶのは **bot が見えているチャンネルだけ**なので、出てこなければ bot が招かれていない（`/offdesk` の選択肢に出ないのと同じ原因）。
+
+**名前は後から変えられない。** 一致の鍵なので、変えると別のプロジェクトが増えて古い行が残る —— 画面にも欄が無い。
 
 **`ROUTINE_PROMPT` を直したら、既に在る routine 全部に貼り直す。** プロンプトは routine に焼き込まれるので、直しても勝手には届かない（**ズレても静かに動き続ける**）。逆に、ツールの説明・`initialize` の instructions・プラグインの skill は貼り直しが要らない —— 前者 2 つは Worker のデプロイで、skill は §3-1 の `# 版` を上げると届く。
 
@@ -77,19 +76,26 @@ GitHub Actions の **`projects sync`** を `workflow_dispatch` で回し、**1 �
 
 ### 直す
 
-`projects.json` を書き換えて `update`。**名前は変えない** —— 名前が一致の鍵なので、変えると別のプロジェクトが増えて古い行が残る。
+行の **「直す」**。チャンネル・リポジトリ・fire の URL を書き換える。
 
-### 止める・消す
+**トークンは空欄なら据え置き。** claude.ai のトークンは 1 度しか表示されず、再発行すると前のものが失効するので、**入れ直しを強制しない**。入れたときだけ叩いて確かめ、通れば差し替わる。
 
-**このワークフローではできない**（削除の経路を持たず、`disabled_at` を書くコードも無い）。
-止めるなら手で:
+**`fire の URL` は毎回入れ直す。** 一覧にはホストしか出ていない —— URL の末尾には routine の識別子が埋まっていて、**それ 1 つとトークンがあれば起動できる**ので、画面にも API の応答にも出していない。
 
-```sh
-wrangler d1 execute offdesk-db-prod --remote --profile <profile> --command \
-  "UPDATE projects SET disabled_at = unixepoch('subsec') * 1000 WHERE name = '<名前>'"
-```
+> **別の routine を指すように URL を変えるときは、トークンも一緒に入れる。**
+> 据え置きのまま URL だけ変えると、**前の routine のトークンが残る**（画面は止めない）。
 
-そのあと `commands` を回す（選択肢からは自動で消えない）。**消すのは想定していない**（`runs` が参照しているので、run の履歴ごと消すことになる）。
+### 止める・戻す
+
+行の **「止める」**（無効なら「戻す」）。`disabled_at` が立ち、**そのチャンネルからは起動できなくなり、`/offdesk` の選択肢からも消える。**
+
+**消す口は無い。** `runs.project_id` が `RESTRICT` の外部キーなので、run が 1 本でもあるプロジェクトは構造的に消せない —— 消せるようにすると run の履歴ごと消すことになる。
+
+### `/offdesk` の選択肢がずれた
+
+`/projects` の **「/offdesk を登録し直す」**。台帳は触らず、いま有効な名前で登録し直すだけ。
+
+押すのは 2 つの場合 —— **option を増やしたとき**（`issue` / `pr` のような欄は登録し直すまで Discord に出ない）と、保存のときに「更新できませんでした」と出たとき。
 
 ---
 

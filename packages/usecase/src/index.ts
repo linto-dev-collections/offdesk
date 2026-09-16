@@ -46,7 +46,7 @@ export type {
   ProjectStoreReadPort,
   ProjectSummaryView,
 } from "./list-projects.ts";
-export { listProjectSummaries } from "./list-projects.ts";
+export { listProjectSummaries, toProjectSummary } from "./list-projects.ts";
 export type {
   ListRunsDeps,
   ListRunsInput,
@@ -95,9 +95,18 @@ export {
   sweepSilentRuns,
 } from "./sweep-silent-runs.ts";
 export type {
+  CreateProjectInput,
+  FireTokenBadReason,
   FireTokenCipherPort,
+  FireTokenVerifierPort,
   ProjectStoreWritePort,
-  SyncProjectsApplied,
-  SyncProjectsEntry,
-} from "./sync-projects.ts";
-export { syncProjects } from "./sync-projects.ts";
+  UpdateProjectInput,
+  WriteProjectDeps,
+  WriteProjectProblem,
+  WriteProjectResult,
+} from "./write-project.ts";
+export {
+  createProject,
+  setProjectDisabled,
+  updateProject,
+} from "./write-project.ts";

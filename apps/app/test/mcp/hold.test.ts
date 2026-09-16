@@ -17,6 +17,7 @@ import {
   mcpCall,
   progressNotifications,
   readSse,
+  readSseUntil,
   toolStatusOf,
 } from "./support.ts";
 
@@ -227,6 +228,14 @@ describe("上限に達したとき", () => {
   });
 });
 
+/*
+  **progress を見るテストの上限は広く取る。** 止めるのは「何通来たか」で、
+  上限は**打ち切りが効かなかったときの保険**でしかない —— 狭いと、
+  1 周（D1 を 1 回引く）が伸びた機械で必要な通数に届かずに閉じてしまう。
+  vitest の既定のタイムアウト（5 秒）より十分内側。
+*/
+const HOLD_MS = "2000";
+
 describe("progress 通知（要件 F-B6）", () => {
   it("progressToken があれば定期的に流れる", async () => {
     stubOutbound([["discord.com", discordOk({ messageId: MESSAGE_ID })]]);
@@ -235,9 +244,12 @@ describe("progress 通知（要件 F-B6）", () => {
     const { response, settle } = await startHold({
       runKey,
       progressToken: "tok-1",
-      env: { ASK_HOLD_MS: "120", ASK_PROGRESS_MS: "10", ASK_POLL_MS: "5" },
+      env: { ASK_HOLD_MS: HOLD_MS, ASK_PROGRESS_MS: "10", ASK_POLL_MS: "5" },
     });
-    const frames = await readSse(response);
+    const frames = await readSseUntil(
+      response,
+      (seen) => progressNotifications(seen).length >= 1,
+    );
     await settle();
 
     const notifications = progressNotifications(frames);
@@ -255,9 +267,17 @@ describe("progress 通知（要件 F-B6）", () => {
     const { response, settle } = await startHold({
       runKey,
       progressToken: 7,
-      env: { ASK_HOLD_MS: "150", ASK_PROGRESS_MS: "10", ASK_POLL_MS: "5" },
+      env: { ASK_HOLD_MS: HOLD_MS, ASK_PROGRESS_MS: "10", ASK_POLL_MS: "5" },
     });
-    const frames = await readSse(response);
+    /*
+      **3 通そろったら打ち切る**（上限まで待たない）。「毎回増える」は 1 通では
+      言えないので 2 通以上が要るが、**何通流れるかは機械の速さで変わる** ——
+      上限で止める形だと 1 周が伸びた CI で 1 通になって落ちた（2026-09-17）。
+    */
+    const frames = await readSseUntil(
+      response,
+      (seen) => progressNotifications(seen).length >= 3,
+    );
     await settle();
 
     const values = progressNotifications(frames).map(
