@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backoffDelayMs,
+  firstHeartbeatDelayMs,
   GATEWAY_BACKOFF_BASE_MS,
   GATEWAY_BACKOFF_JITTER_MS,
   GATEWAY_BACKOFF_MAX_MS,
@@ -27,6 +28,14 @@ import {
 
 const T0 = 1_788_600_000_000;
 const HEARTBEAT_MS = 41_250;
+
+/**
+ * hello から**最初の**ハートビートまで（仕様の `heartbeat_interval * jitter`）。
+ *
+ * **間隔そのものではない。** ここを `HEARTBEAT_MS` と書くと、ジッタを外した
+ * 日にテストが緑のまま通る。
+ */
+const FIRST_BEAT_MS = firstHeartbeatDelayMs(HEARTBEAT_MS, T0);
 const SESSION_ID = "session-abc";
 const RESUME_URL = "wss://gateway-us-east1-b.discord.gg";
 
@@ -164,8 +173,13 @@ describe("握手が通る", () => {
 
     expect(state.kind).toBe("connecting");
     expect(kindsOf(effects)).toEqual(["identify", "alarm"]);
-    // READY の期限（30 秒）より 1 回目のハートビート（41.25 秒）が遅いので、期限が勝つ。
-    expect(alarmOf(effects)).toBe(T0 + GATEWAY_READY_TIMEOUT_MS);
+    /*
+      **1 回目のハートビートにはジッタが入る**（仕様の `interval * jitter`）ので、
+      READY の期限（30 秒）より先に来ることがある。早い方が alarm になる。
+    */
+    expect(alarmOf(effects)).toBe(
+      Math.min(T0 + GATEWAY_READY_TIMEOUT_MS, T0 + FIRST_BEAT_MS),
+    );
   });
 
   it("ready で live になる", () => {
@@ -202,9 +216,15 @@ describe("握手が通る", () => {
 });
 
 describe("ハートビートとゾンビ検出", () => {
+  /** 1 発目を送ったあとの `live`（ACK はまだ来ていない）。 */
+  const afterFirstBeat = (): { state: GatewayState; at: number } => {
+    const at = T0 + FIRST_BEAT_MS;
+    return { state: drive(toLive(), [{ kind: "tick", at }]).state, at };
+  };
+
   it("間隔が来たら送る", () => {
     const { state, effects } = drive(toLive(), [
-      { kind: "tick", at: T0 + HEARTBEAT_MS },
+      { kind: "tick", at: T0 + FIRST_BEAT_MS },
     ]);
 
     expect(kindsOf(effects)).toEqual(["heartbeat", "alarm"]);
@@ -214,10 +234,41 @@ describe("ハートビートとゾンビ検出", () => {
 
   it("間隔の前は送らない", () => {
     const { effects } = drive(toLive(), [
-      { kind: "tick", at: T0 + HEARTBEAT_MS - 1 },
+      { kind: "tick", at: T0 + FIRST_BEAT_MS - 1 },
     ]);
 
     expect(kindsOf(effects)).toEqual(["alarm"]);
+  });
+
+  /*
+    **1 回目だけジッタを入れる**（仕様の `heartbeat_interval * jitter`）。
+    1 間隔ちょうどは窓の縁で、DO が evict されて alarm が遅れるとそのまま超える。
+    **2 回目からは素の間隔。**
+  */
+  describe("最初の 1 発のジッタ", () => {
+    it("間隔より短い（0.5〜1.0 倍）", () => {
+      expect(FIRST_BEAT_MS).toBeGreaterThanOrEqual(HEARTBEAT_MS / 2);
+      expect(FIRST_BEAT_MS).toBeLessThan(HEARTBEAT_MS);
+    });
+
+    /** **時計の下位ミリ秒から作る**（乱数を使わない。`step` は純粋なまま）。 */
+    it("時刻が違えば値も変わる", () => {
+      const values = new Set(
+        [0, 137, 499, 750, 999].map((offset) =>
+          firstHeartbeatDelayMs(HEARTBEAT_MS, T0 + offset),
+        ),
+      );
+
+      expect(values.size).toBeGreaterThan(1);
+    });
+
+    it("2 回目からは素の間隔", () => {
+      const { state, at } = afterFirstBeat();
+
+      expect(state.kind === "live" && state.heartbeat.nextAt).toBe(
+        at + HEARTBEAT_MS,
+      );
+    });
   });
 
   /*
@@ -237,10 +288,6 @@ describe("ハートビートとゾンビ検出", () => {
     expect(state.heartbeat.nextAt).toBe(late + HEARTBEAT_MS);
   });
 
-  /*
-    **ACK も「生きている」の証拠。** 静かなサーバーでは `MESSAGE_CREATE` が
-    何時間も来ないので、dispatch だけを見ていると正常な接続がゾンビ判定される。
-  */
   it("ack で無音の時計が戻る", () => {
     const acked = drive(toLive(), [{ kind: "ack", at: T0 + 1_000 }]).state;
 
@@ -256,10 +303,25 @@ describe("ハートビートとゾンビ検出", () => {
     expect(state.kind === "live" && state.lastEventAt).toBe(T0 + 500);
   });
 
-  it("無音が続くとゾンビと判定して切り、張り直す", () => {
-    const zombieAt = T0 + zombieWindowMs(HEARTBEAT_MS);
-    const { state, effects } = drive(toLive(), [
-      { kind: "tick", at: zombieAt },
+  /*
+    **ゾンビの根拠は「送ったハートビートの ACK が来ない」だけ**（仕様どおり）。
+
+    2026-09-16 まで `lastEventAt`（ACK **または** dispatch）で見ていた ——
+    賑やかなサーバーでは `MESSAGE_CREATE` が届き続けるので、**こちらの送信が
+    1 通も通っていなくても「生きている」と読めた。**
+  */
+  it("1 発も送っていなければゾンビにならない", () => {
+    const { state } = drive(toLive(), [
+      { kind: "tick", at: T0 + FIRST_BEAT_MS - 1 },
+    ]);
+
+    expect(state.kind).toBe("live");
+  });
+
+  it("ACK が来ないまま 2 間隔ぶん過ぎるとゾンビ", () => {
+    const { state: sent, at } = afterFirstBeat();
+    const { state, effects } = drive(sent, [
+      { kind: "tick", at: at + zombieWindowMs(HEARTBEAT_MS) },
     ]);
 
     expect(state.kind).toBe("backoff");
@@ -268,17 +330,58 @@ describe("ハートビートとゾンビ検出", () => {
   });
 
   it("ゾンビの手前ではハートビートを送るだけ", () => {
-    const almost = T0 + zombieWindowMs(HEARTBEAT_MS) - 1;
-    const { state, effects } = drive(toLive(), [{ kind: "tick", at: almost }]);
+    const { state: sent, at } = afterFirstBeat();
+    const { state, effects } = drive(sent, [
+      { kind: "tick", at: at + zombieWindowMs(HEARTBEAT_MS) - 1 },
+    ]);
 
     expect(state.kind).toBe("live");
     expect(kindsOf(effects)).toContain("heartbeat");
   });
 
+  /** **dispatch は ACK の代わりにならない。** ここが今回のいちばんの変更。 */
+  it("dispatch が届き続けてもゾンビ判定は隠れない", () => {
+    const { state: sent, at } = afterFirstBeat();
+    const zombieAt = at + zombieWindowMs(HEARTBEAT_MS);
+    const { state } = drive(sent, [
+      { kind: "dispatch", at: zombieAt - 1, seq: 9 },
+      { kind: "tick", at: zombieAt },
+    ]);
+
+    expect(state.kind).toBe("backoff");
+  });
+
+  /** ACK が来れば待ちは解ける（同じ時刻でもゾンビにならない）。 */
+  it("ACK が来れば猶予が消える", () => {
+    const { state: sent, at } = afterFirstBeat();
+    const { state } = drive(sent, [
+      { kind: "ack", at: at + 100 },
+      { kind: "tick", at: at + zombieWindowMs(HEARTBEAT_MS) },
+    ]);
+
+    expect(state.kind).toBe("live");
+  });
+
+  /*
+    **2 通目を送っても猶予は伸びない。** 伸ばすと、返事の来ないソケットへ
+    撃ち続けるほど切れなくなる（いちばん切りたい相手が生き残る）。
+  */
+  it("返事が無いまま撃ち続けても猶予は伸びない", () => {
+    const { state: sent, at } = afterFirstBeat();
+    const second = drive(sent, [{ kind: "tick", at: at + HEARTBEAT_MS }]).state;
+    const { state } = drive(second, [
+      { kind: "tick", at: at + zombieWindowMs(HEARTBEAT_MS) },
+    ]);
+
+    expect(state.kind).toBe("backoff");
+  });
+
   /** ゾンビでもセッションは捨てない（張り直しは resume で済む）。 */
   it("ゾンビからの張り直しは resume を持っている", () => {
-    const zombieAt = T0 + zombieWindowMs(HEARTBEAT_MS);
-    const backoff = drive(toLive(), [{ kind: "tick", at: zombieAt }]).state;
+    const { state: sent, at } = afterFirstBeat();
+    const backoff = drive(sent, [
+      { kind: "tick", at: at + zombieWindowMs(HEARTBEAT_MS) },
+    ]).state;
 
     expect(backoff.kind === "backoff" && backoff.resume?.sessionId).toBe(
       SESSION_ID,
@@ -617,9 +720,25 @@ describe("isGatewayHealthy", () => {
   });
 
   /** **`live` だけでは足りない。** ACK が途切れかけたソケットは live のまま黙る。 */
-  it("live でも無音が深ければ healthy ではない", () => {
+  /*
+    **判定は `onTick` のゾンビ検査と同じ根拠。** 別々に書くと、片方だけ直したときに
+    「healthy と出ているのに切られる」がありうる。
+  */
+  it("ACK を待っていなければ、時間が経っても healthy", () => {
     expect(isGatewayHealthy(toLive(), T0 + zombieWindowMs(HEARTBEAT_MS))).toBe(
+      true,
+    );
+  });
+
+  it("ACK が途切れていれば healthy ではない", () => {
+    const at = T0 + FIRST_BEAT_MS;
+    const sent = drive(toLive(), [{ kind: "tick", at }]).state;
+
+    expect(isGatewayHealthy(sent, at + zombieWindowMs(HEARTBEAT_MS))).toBe(
       false,
+    );
+    expect(isGatewayHealthy(sent, at + zombieWindowMs(HEARTBEAT_MS) - 1)).toBe(
+      true,
     );
   });
 

@@ -11,23 +11,42 @@ In the cloud environment's **Setup script** field:
 
 ```bash
 #!/bin/bash
-# rev: 3   <- bump after changing the plugin, so the cached environment is rebuilt
+# rev: 4   <- bump after changing the plugin, so the cached environment is rebuilt
 set -u
+ok=0
 for home in /home/user /root; do
   [ -d "$home" ] || continue
   HOME="$home" claude plugin marketplace add linto-dev-collections/offdesk || true
   HOME="$home" claude plugin install offdesk@offdesk || true
+
+  # Say whether it is actually there. `|| true` above has to stay (a non-zero
+  # exit stops the session from starting), but swallowing every error leaves a
+  # session that starts fine and cannot reach Discord -- and nothing says so.
+  if HOME="$home" claude plugin list 2>/dev/null | grep -q offdesk; then
+    echo "OFFDESK-PLUGIN-OK: installed under ${home}"
+    ok=1
+  else
+    echo "OFFDESK-PLUGIN-MISSING: not installed under ${home}" >&2
+  fi
 done
+[ "$ok" = 1 ] || echo "OFFDESK-PLUGIN-FAILED: no HOME got the plugin; runs will start but stay silent on Discord" >&2
 exit 0
 ```
 
 - **Keep `|| true` and `exit 0`.** A non-zero exit stops the session from starting.
 - **Keep the `HOME` loop.** The script runs as root, whose `$HOME` differs from the session's, and Claude Code only reads `~/.claude/plugins/`.
 - **The setup script does not run every session.** The environment is cached, so a change here reaches sessions only after the cache is rebuilt — bump `rev`.
+- **`OFFDESK-PLUGIN-FAILED` in the setup log is the one line worth grepping.** Without the plugin, a run starts, works, and never says a word on Discord — identical in symptom to a session that simply never ran. The verification step turns that into a searchable marker in the environment's build output.
 
 The environment also needs `OFFDESK_URL`, `OFFDESK_TOKEN`, the allowed domains, two `CLAUDE_CODE_MCP_*` variables, and `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`. See offdesk's `OPERATIONS.md` §3.
 
 **`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` is not optional, and it cannot move into this plugin.** `SessionEnd` hooks share a 1.5 second budget. A `timeout` in a settings file raises that budget; **a `timeout` on a plugin-provided hook does not**, and a plugin cannot write a settings file. Without the variable, the hook that folds the run and posts the 🏁 is cancelled and its output discarded — silently. The `timeout` this plugin's `hooks.json` sets is still the cap for that one hook once the budget is raised, so it stays.
+
+## Versioning
+
+**`version` lives in `plugin.json` only, never in the marketplace entry.** Claude Code always takes the `plugin.json` value and never warns, so a version in both places means a stale manifest silently masks the one in `marketplace.json` ([Plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)).
+
+A pinned version is also what decides whether anyone gets an update: **users only receive a new copy when the string changes.** Bump `plugin.json`'s `version` in the same commit that changes anything under `plugin/plugins/offdesk/`, and bump `rev` in the setup script above so the cached environment is rebuilt. Both are checked by `apps/app/test/release/mcp-template.test.ts`.
 
 ## Contents
 

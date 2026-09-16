@@ -24,6 +24,23 @@ export const ASK_SILENT_HOLD_MS = 4 * 60_000;
 export const ASK_TOUCH_MS = 15_000;
 
 /**
+ * 1 つの問いを待ち続ける**総時間**の上限（`asks.created_at` から数える）。
+ *
+ * **`ASK_HOLD_MS` とは別の時計。** あちらは 1 回の握りの長さで、上限に達したら
+ * `pending` を返して `ask_wait` に引き継ぐ —— つまり**あれだけでは待ちは終わらない。**
+ *
+ * 2026-09-16 まで上限が無かった。依頼者が答えないまま放っておくと、
+ * セッションは 15 分ごとに `ask_wait` を呼び直して**無期限に生き続ける** ——
+ * 沈黙の掃除（`SILENT_SWEEP_AFTER_MS`）にも掛からない。あれが見る
+ * `held_at` は握りが 15 秒ごとに書き直しているので、**待っている限り
+ * いつまでも新しい。**
+ *
+ * **24 時間。** 翌朝までに気付けば答えられる長さで、放置されたセッションが
+ * 残るのは 1 晩まで。
+ */
+export const ASK_ABANDON_MS = 24 * 60 * 60_000;
+
+/**
  * `held_at` がこれより新しければ「握りが生きている」とみなす（要件 `F-C5`・`F-C6`）。
  *
  * **`ASK_TOUCH_MS` の 2 回ぶんより広く取る。** 1 回の更新に失敗しただけで
@@ -52,6 +69,7 @@ export type HoldConfig = {
   readonly progressMs: number;
   readonly silentHoldMs: number;
   readonly touchMs: number;
+  readonly abandonMs: number;
 };
 
 /** 環境変数の生の値。**「無い」は `undefined`、不正な値も既定に倒す。** */
@@ -61,6 +79,7 @@ export type HoldOverrides = {
   readonly ASK_PROGRESS_MS?: string;
   readonly ASK_SILENT_HOLD_MS?: string;
   readonly ASK_TOUCH_MS?: string;
+  readonly ASK_ABANDON_MS?: string;
 };
 
 /**
@@ -86,7 +105,29 @@ export const resolveHoldConfig = (
   progressMs: positive(overrides.ASK_PROGRESS_MS, ASK_PROGRESS_MS),
   silentHoldMs: positive(overrides.ASK_SILENT_HOLD_MS, ASK_SILENT_HOLD_MS),
   touchMs: positive(overrides.ASK_TOUCH_MS, ASK_TOUCH_MS),
+  abandonMs: positive(overrides.ASK_ABANDON_MS, ASK_ABANDON_MS),
 });
+
+/**
+ * その問いを**もう待たない**か（`asks.created_at` から `abandonMs` が過ぎた）。
+ *
+ * **1 回の握りの上限ではない。** `ask_wait` で何回握り直しても、この時計は
+ * 進み続ける —— 上限が無いと、答えない依頼者 1 人でセッションが
+ * 無期限に生き残る（`ASK_ABANDON_MS` の why）。
+ */
+export const isAskAbandoned = (
+  createdAtMs: number,
+  nowMs: number,
+  abandonMs: number = ASK_ABANDON_MS,
+): boolean => nowMs - createdAtMs >= abandonMs;
+
+/** 依頼者が答えないまま上限に達したときに Claude へ返す文。 */
+export const ASK_ABANDONED_NEXT =
+  "依頼者が答えないまま待ちの上限に達したので、この run を終わりにしました。" +
+  "**これ以上 offdesk のツールを呼ばず、作業を終えてください。** 返しても誰にも届きません。";
+
+/** `events` に残す 1 行（要件 `N-7`「無言で捨てない」）。**時間は定数から出す。** */
+export const ASK_ABANDONED_EVENT_BODY = `依頼者からの回答が ${ASK_ABANDON_MS / 3_600_000} 時間以上ないので、この run を終了として畳みました。同じスレッドに書き直せば新しい run が立ちます。`;
 
 /**
  * この握りを何ミリ秒まで続けてよいか。

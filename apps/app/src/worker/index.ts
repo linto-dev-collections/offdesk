@@ -43,12 +43,11 @@ app.on(["GET", "POST"], "/api/auth/*", (c) =>
 );
 
 /*
-  MCP（P3a）。**認証を握る前に行う**（plans/security.md 脅威 16）——
-  先にストリームを開いてから検査すると、その時点で資源を使っている。
+  MCP。認証を握る前に行う —— 先にストリームを開いてから検査すると、その時点で資源を使っている。
 
   判定は `/hooks/*` や `/plans/*` と同じ `bearerMatches` の 1 か所（脅威 2 の「判定は 1 箇所」）。
   `OFFDESK_TOKEN` が未設定・空文字なら誰も通らない（要件 `I-2`）。
-  **失敗時のログに値を出さない。**
+  失敗時のログに値を出さない。
 */
 app.post("/mcp", async (c) => {
   if (!bearerMatches(c.req.header("authorization"), c.env.OFFDESK_TOKEN)) {
@@ -68,18 +67,24 @@ app.post("/mcp", async (c) => {
 app.get("/mcp", (c) => c.text("method not allowed", 405));
 
 /*
-  Gateway の状態と張り直し（要件 `F-I7`・計画 P4 §3-7）。
+  Gateway の状態と張り直し。
 
-  **Ed25519 ではなく Bearer / セッションで守る**（plans/security.md 脅威 1）——
-  Discord から来るリクエストではないので、Discord の署名で守ろうとしない。
+  Ed25519 ではなく Bearer / セッションで守る —— Discord から来るリクエストではないので、Discord の署名で守ろうとしない。
 
-  **機械の口（Bearer）と画面（ログイン）の両方から叩ける。** `curl` を覚えなくても
-  P7b の運用画面から張り直せるようにするため、判定を「どちらか」にしてある。
+  機械の口（Bearer）と画面（ログイン）の両方から叩ける。`curl` を覚えなくても P7b の運用画面から張り直せるようにするため、判定を「どちらか」にしてある。
+
+  Bearer は `OFFDESK_ADMIN_TOKEN`。`OFFDESK_TOKEN` では通らない（2026-09-16）。
+  あちらは cloud session の環境変数に置く値で、**環境を使う誰からも見える**
+  （cloud-environments のドキュメント）。routine は承認プロンプト無しで
+  自律実行されるので、同じ 1 本で `/gateway/reset` まで開けておくと、
+  リポジトリや取得したページから入った 1 行で常駐接続を落とせることになる。
+  **後方互換で `OFFDESK_TOKEN` も通す形にはしない** ——
+  残すと「分けたつもりで分かれていない」が静かに続く。
 */
 const gateway = new Hono<AppBindings>();
 
 gateway.use("*", async (c, next) => {
-  if (bearerMatches(c.req.header("authorization"), c.env.OFFDESK_TOKEN)) {
+  if (bearerMatches(c.req.header("authorization"), c.env.OFFDESK_ADMIN_TOKEN)) {
     await next();
     return;
   }
@@ -235,9 +240,19 @@ app.post("/discord/interactions", async (c) => {
     signature: c.req.header("x-signature-ed25519"),
     timestamp: c.req.header("x-signature-timestamp"),
     body,
+    nowMs: Date.now(),
   });
 
   if (verdict === "unconfigured") return c.text("not configured", 503);
+  /*
+    **古い再送は署名が正しくても通さない**（`DISCORD_SIGNATURE_WINDOW_MS`）。
+    `invalid` と分けてログに残すのは、切り分けのときに
+    「鍵が違う」と「時計がずれている／再生された」を混ぜないため。
+  */
+  if (verdict === "stale") {
+    console.warn("[discord] 期限切れの署名を拒否しました");
+    return c.text("stale signature", 401);
+  }
   if (verdict === "invalid") return c.text("bad signature", 401);
 
   return await handleInteraction(JSON.parse(body), c.env, {

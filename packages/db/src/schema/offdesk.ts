@@ -134,6 +134,17 @@ export const runs = sqliteTable(
       "runs_cc_pair_ck",
       sql`(${t.ccSessionId} IS NULL) = (${t.ccSessionUrl} IS NULL)`,
     ),
+    /*
+      **`ctx_output_tokens` の対は CHECK では書けない。**
+
+      表単位の CHECK は SQLite では後から足せず、`runs` の作り直しは
+      `asks` / `events` / `inbox` / `discord_interactions` の 4 表が
+      参照していてできない。**同じ不変条件はトリガが持つ**
+      （`0009_runs_ctx_output_pair`）—— 片方だけ直さないよう、ここにも書いておく。
+
+      **`ctx_model` はわざと結んでいない。** NULL が「モデルが分からない」を
+      意味する正当な値（転写ログに `.message.model` が無い行のため）。
+    */
     check(
       "runs_ctx_pair_ck",
       sql`(${t.ctxAt} IS NULL) = (${t.ctxUsedTokens} IS NULL)`,
@@ -308,6 +319,46 @@ export const inbox = sqliteTable(
     index("inbox_taken_by_idx")
       .on(t.takenByRunKey)
       .where(sql`${t.takenByRunKey} IS NOT NULL`),
+  ],
+);
+
+/**
+ * 処理済みの Discord interaction（要件 `F-A5` の冪等化。2026-09-16）。
+ *
+ * **署名が正しい要求は、何度送られても署名が正しい。** Ed25519 の検査は
+ * 「Discord が作った本物か」しか言わず、**同じ本物を 2 回送られたときに
+ * 2 回起動するのを止めない** —— 1 回の起動は routine の実行回数を
+ * 1 つ消費するので、取りこぼしよりも二重起動の方が高い。
+ *
+ * 時刻の窓（`verifyDiscordSignature` の `DISCORD_SIGNATURE_WINDOW_MS`）は
+ * 古い再送を落とすだけで、**窓の中の再送はここでしか止まらない。**
+ *
+ * `run_key` は後から埋める。**確保は起動より先**でなければ意味が無いので、
+ * 行が入る時点ではまだ run が無い。
+ */
+export const discordInteractions = sqliteTable(
+  "discord_interactions",
+  {
+    /** Discord の interaction id（snowflake）。 */
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    runKey: text("run_key").references(() => runs.runKey, {
+      onDelete: "restrict",
+      onUpdate: "restrict",
+    }),
+    createdAt,
+  },
+  (t) => [
+    check(
+      "discord_interactions_id_shape_ck",
+      sql`${t.id} NOT GLOB '*[^0-9]*' AND length(${t.id}) BETWEEN 15 AND 24`,
+    ),
+    check(
+      "discord_interactions_kind_ck",
+      sql`${t.kind} IN ('command', 'component')`,
+    ),
+    /** 古い行を手で掃除するとき（OPERATIONS §8）に使う。 */
+    index("discord_interactions_created_idx").on(t.createdAt),
   ],
 );
 

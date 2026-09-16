@@ -1,15 +1,66 @@
 export type JsonRpcId = string | number | null;
 
-export type JsonRpcRequest = {
+/**
+ * POST の本文に来うるもの。**要求だけではない。**
+ *
+ * Streamable HTTP は「要求 / 通知 / 応答のいずれか 1 つ」を本文に許していて、
+ * 通知と応答には `202 Accepted` を**本文なしで**返すことが MUST。
+ * 3 つを見分けるために `result` / `error` の有無まで型に入れてある。
+ */
+export type JsonRpcMessage = {
   readonly jsonrpc?: string;
   readonly id?: JsonRpcId;
   readonly method?: string;
   readonly params?: Record<string, unknown>;
+  readonly result?: unknown;
+  readonly error?: unknown;
 };
 
+export const JSONRPC_VERSION = "2.0";
+
 export const PARSE_ERROR = -32700;
+export const INVALID_REQUEST = -32600;
 export const METHOD_NOT_FOUND = -32601;
 export const INVALID_PARAMS = -32602;
+
+/**
+ * 初期化のあと、クライアントが**すべての要求に載せる**ヘッダ（`2025-06-18` 以降）。
+ *
+ * **無ければ `2025-03-26` とみなす**のが仕様の後方互換規定で、
+ * **知らない値・対応していない値なら `400` を返すのが MUST。**
+ * https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+ */
+export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
+
+/**
+ * ヘッダが無いときに仮定する版（仕様の後方互換規定）。
+ *
+ * **`PROTOCOL_VERSIONS` に必ず含まれている値であること。** 含まれていないと、
+ * ヘッダを送らない古いクライアントが 400 で弾かれる。
+ */
+export const ASSUMED_PROTOCOL_VERSION = "2025-03-26";
+
+/**
+ * 本文が 3 つのどれか（あるいはどれでもないか）。
+ *
+ * **`response` を `method` が無い要求として扱わない**のが要点。あれを
+ * `-32601`（未対応のメソッド）で返すと、クライアントは「自分の送った応答に
+ * サーバーが応答を返した」という無限に往復できる形を受け取る。
+ */
+export type JsonRpcShape = "request" | "notification" | "response" | "invalid";
+
+export const jsonRpcShapeOf = (body: JsonRpcMessage): JsonRpcShape => {
+  const hasId = body.id !== undefined && body.id !== null;
+
+  if (typeof body.method === "string" && body.method !== "") {
+    return hasId ? "request" : "notification";
+  }
+
+  // `method` が無い ＝ 要求ではない。応答なら `id` ＋ `result` か `error` を持つ。
+  if (hasId && ("result" in body || "error" in body)) return "response";
+
+  return "invalid";
+};
 
 /**
  * `UnsupportedProtocolVersionError`（MCP 仕様の予約域）。
@@ -32,9 +83,12 @@ export const MODERN_PROTOCOL_VERSION_KEY =
 const jsonHeaders = { "content-type": "application/json" } as const;
 
 export const rpcResult = (id: JsonRpcId, value: unknown): Response =>
-  new Response(JSON.stringify({ jsonrpc: "2.0", id, result: value }), {
-    headers: jsonHeaders,
-  });
+  new Response(
+    JSON.stringify({ jsonrpc: JSONRPC_VERSION, id, result: value }),
+    {
+      headers: jsonHeaders,
+    },
+  );
 
 export const rpcError = (
   id: JsonRpcId,
@@ -44,7 +98,7 @@ export const rpcError = (
 ): Response =>
   new Response(
     JSON.stringify({
-      jsonrpc: "2.0",
+      jsonrpc: JSONRPC_VERSION,
       id,
       error: {
         code,
@@ -85,7 +139,7 @@ export const toolResultMessage = (
   text: string,
   isError = false,
 ): unknown => ({
-  jsonrpc: "2.0",
+  jsonrpc: JSONRPC_VERSION,
   id,
   result: { content: [{ type: "text", text }], isError },
 });
@@ -130,7 +184,7 @@ export const progressNotification = (
   progress: number,
   message: string,
 ): unknown => ({
-  jsonrpc: "2.0",
+  jsonrpc: JSONRPC_VERSION,
   method: "notifications/progress",
   // `progress` は毎回増える値でなければならない（仕様）。総数は分からないので `total` は載せない。
   params: { progressToken: token, progress, message },

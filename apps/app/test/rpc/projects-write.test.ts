@@ -34,6 +34,7 @@ const call = async (
   procedure: string,
   input: unknown,
   headers: Headers,
+  envOverrides: Partial<typeof env> = {},
 ): Promise<Response> => {
   const requestHeaders = new Headers(headers);
   requestHeaders.set("content-type", "application/json");
@@ -46,7 +47,7 @@ const call = async (
       headers: requestHeaders,
       body: JSON.stringify({ json: input }),
     }),
-    env,
+    { ...env, ...envOverrides },
   );
 };
 
@@ -93,6 +94,13 @@ const created = (overrides: Record<string, unknown> = {}) => ({
   fireToken: TOKEN,
   ...overrides,
 });
+
+const fireUrlOf = async (id: string): Promise<string | null> => {
+  const row = await env.DB.prepare("SELECT fire_url FROM projects WHERE id = ?")
+    .bind(id)
+    .first<{ fire_url: string }>();
+  return row?.fire_url ?? null;
+};
 
 const projectRow = async (
   name: string,
@@ -413,6 +421,110 @@ describe("projects.update", () => {
     );
 
     expect(response.status).toBe(409);
+  });
+
+  /*
+    **別の routine を指す URL に変えるならトークンは必須**（2026-09-16）。
+
+    トークンは routine ごとに発行される（`fire` のドキュメント: "The bearer token
+    is scoped to a single routine"）ので、**指す先が変わればいま持っているものは
+    必ず通らない。** 以前はここを通していて、気付くのは次に `/offdesk` を叩いた人が
+    401 を見たとき —— そのときには誰も編集画面を見ていない。
+  */
+  it("別の routine へ貼り替えてトークンを省くと 422（token_required）", async () => {
+    const { alpha } = await seedTwoProjects();
+    const { headers } = await signIn();
+
+    const response = await call(
+      "update",
+      {
+        id: alpha,
+        discordChannelId: CHANNEL_ALPHA,
+        repoUrl: "https://github.com/x/y",
+        fireUrl:
+          "https://api.anthropic.com/v1/claude_code/routines/trig_other/fire",
+      },
+      headers,
+    );
+
+    expect(response.status).toBe(422);
+    expect((await bodyOf(response)).data).toMatchObject({
+      kind: "token_required",
+    });
+    /** **行は変わらない。** */
+    expect(await fireUrlOf(alpha)).toBe(FIRE_URL);
+  });
+
+  it("別の routine でもトークンを入れれば通る", async () => {
+    const { alpha } = await seedTwoProjects();
+    const { headers } = await signIn();
+    const nextUrl =
+      "https://api.anthropic.com/v1/claude_code/routines/trig_other/fire";
+
+    const response = await call(
+      "update",
+      {
+        id: alpha,
+        discordChannelId: CHANNEL_ALPHA,
+        repoUrl: "https://github.com/x/y",
+        fireUrl: nextUrl,
+        fireToken: TOKEN,
+      },
+      headers,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await fireUrlOf(alpha)).toBe(nextUrl);
+  });
+
+  /** **同じ routine の URL を整形し直すだけの編集は通る**（`sameRoutine`）。 */
+  it("同じ routine のままクエリが付いただけなら通る", async () => {
+    const { alpha } = await seedTwoProjects();
+    const { headers } = await signIn();
+
+    const response = await call(
+      "update",
+      {
+        id: alpha,
+        discordChannelId: CHANNEL_ALPHA,
+        repoUrl: "https://github.com/x/y",
+        fireUrl: `${FIRE_URL}?v=2`,
+      },
+      headers,
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  /*
+    **`fire_url` とトークンは同じ batch で入る**（2026-09-16）。
+
+    以前は「先に `projects` を UPDATE → そのあと資格情報を差し替え」で、
+    **後半が落ちると新しい URL と古いトークンが残った**（次の `/offdesk` が 401）。
+    暗号化で落ちる形を作って、**どちらも動いていない**ことを見る。
+  */
+  it("暗号化に失敗したら fire_url も変わらない", async () => {
+    const { alpha } = await seedTwoProjects();
+    const { headers } = await signIn();
+    const nextUrl =
+      "https://api.anthropic.com/v1/claude_code/routines/trig_other/fire";
+
+    const response = await call(
+      "update",
+      {
+        id: alpha,
+        discordChannelId: CHANNEL_ALPHA,
+        repoUrl: "https://github.com/x/y",
+        fireUrl: nextUrl,
+        fireToken: TOKEN,
+      },
+      headers,
+      // 鍵が壊れていれば `encrypt` が投げる（`FIRE_TOKEN_KEY` は base64 の 32 バイト）。
+      { FIRE_TOKEN_KEY: "AAAA" },
+    );
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(await fireUrlOf(alpha)).toBe(FIRE_URL);
   });
 
   it("知らない id なら 404", async () => {

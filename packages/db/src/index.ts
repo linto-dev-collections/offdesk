@@ -28,6 +28,11 @@ export {
   listPendingAsks,
   listRunsByStatus,
 } from "./repositories/dashboard.ts";
+export type { InteractionKind } from "./repositories/discord-interaction.ts";
+export {
+  attachInteractionRun,
+  claimInteraction,
+} from "./repositories/discord-interaction.ts";
 export type { EventKind, EventRecord } from "./repositories/event.ts";
 export {
   attachEventMessage,
@@ -67,10 +72,9 @@ export {
   findProjectWithMaskById,
   listProjects,
   listProjectsWithMask,
-  replaceFireCredential,
   setProjectDisabled,
   takeFireToken,
-  updateProjectKeepingCredential,
+  updateProjectRow,
   upsertProjectWithCredential,
 } from "./repositories/project.ts";
 export type {

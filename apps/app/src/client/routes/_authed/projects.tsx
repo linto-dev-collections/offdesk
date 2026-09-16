@@ -63,10 +63,22 @@ const problemFor = (code: string, data: unknown): ProjectFormProblem => {
 
   if (code === "UNPROCESSABLE_CONTENT") {
     /*
-      **3 つとも取るべき行動が違う**ので言い分ける（`FireTokenVerdict` の why）。
+      **どれも取るべき行動が違う**ので言い分ける（`FireTokenVerdict` の why）。
       トークンの値も応答の本文も出さない。
     */
     const kind = (data as Partial<FireTokenProblem> | undefined)?.kind;
+    /*
+      **これだけ「叩く前」に出る。** 別の routine を指すように URL を変えたのに
+      トークンを省いた編集 —— トークンは routine ごとに発行されるので、
+      いま持っているものは必ず通らない。
+    */
+    if (kind === "token_required") {
+      return {
+        field: "fireToken",
+        message:
+          "別の routine を指す URL に変えたので、その routine のトークンも入れてください。いまのトークンは通りません。",
+      };
+    }
     if (kind === "rejected") {
       return {
         field: "fireToken",

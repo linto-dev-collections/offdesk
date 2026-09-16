@@ -140,6 +140,29 @@ export const zombieWindowMs = (heartbeatIntervalMs: number): number =>
   heartbeatIntervalMs * GATEWAY_ZOMBIE_HEARTBEATS;
 
 /**
+ * hello を受けてから**最初の**ハートビートまでの待ち時間。
+ *
+ * 仕様は `heartbeat_interval * jitter`（`jitter` は 0〜1 の乱数）と定めている。
+ * 2026-09-16 まではジッタを省いて 1 間隔ぶん待っていた ——「散らす相手が居ない」
+ * という理由は正しいが、**1 間隔ちょうどは窓の縁**で、DO が evict されて
+ * alarm が少し遅れるとそのまま間隔を超える。
+ *
+ * **0.5〜1.0 の幅で早める。** 仕様の範囲に収まり、遅れに対する余裕が
+ * 最大で半間隔ぶん増える。
+ *
+ * **乱数を使わない**（`backoffDelayMs` と同じ理由）。`step` が純粋でなくなると、
+ * この計画がわざわざ純粋関数に切った理由（要件 `F-I5`）が消える。時計の
+ * 下位ミリ秒はそれ自体が実質のジッタなので、そこから作る。
+ */
+export const firstHeartbeatDelayMs = (
+  heartbeatIntervalMs: number,
+  atMs: number,
+): number => {
+  const jitter = 0.5 + (Math.max(atMs, 0) % 1000) / 2000;
+  return Math.floor(heartbeatIntervalMs * jitter);
+};
+
+/**
  * 指数バックオフ ＋ ジッタ。**`attempt` は 1 から数える**（1 = 1 回目の張り直し）。
  *
  * **ジッタに乱数を使わない。** `step` が純粋でなくなると、この計画がわざわざ
@@ -204,7 +227,28 @@ export type GatewaySession = Readonly<{
   seq: number | null;
 }>;
 
-type HeartbeatClock = Readonly<{ intervalMs: number; nextAt: number }>;
+/**
+ * ハートビートの時計。
+ *
+ * **`awaitingAckSince` が要点**（2026-09-16 に足した）。仕様は
+ * 「次のハートビートまでに ACK が来なければ、1000/1001 以外の close code で
+ * **即座に**切って resume し直す」と定めている。
+ *
+ * 2026-09-16 まで、ゾンビ判定は `lastEventAt`（ACK **または** dispatch）で
+ * 見ていた。だから**賑やかなサーバーでは、こちらのハートビートが 1 通も
+ * 届いていなくても「生きている」と読めた** —— `MESSAGE_CREATE` が
+ * `lastEventAt` を更新し続けるため。ACK を待っている状態を独立して持てば、
+ * 他のイベントで隠れない。
+ *
+ * **`null` は「待っていない」**（最後に送ったぶんの ACK は受け取り済み）。
+ * 値は**最初に返事が来なくなった時刻**で、2 通目を送っても進めない ——
+ * 進めると、送るたびに猶予が伸びて永久に切れなくなる。
+ */
+type HeartbeatClock = Readonly<{
+  intervalMs: number;
+  nextAt: number;
+  awaitingAckSince: number | null;
+}>;
 
 /**
  * **`connecting` が `deadline` を持つのが要点。** 「ソケットが開かない」
@@ -291,6 +335,19 @@ export type GatewayStep = Readonly<{
 }>;
 
 /**
+ * ACK が来ないまま**ここを過ぎたら切る**時刻。`null` は「待っていない」。
+ *
+ * 仕様は「次のハートビートまでに ACK が無ければ即座に切る」（＝ 1 間隔）だが、
+ * **1 回の取りこぼしは一時的なこともある**ので 2 間隔ぶん待つ
+ * （`GATEWAY_ZOMBIE_HEARTBEATS`）。それでも「作業中」の窓（6 時間）より遥かに
+ * 短いので、素の文が長く止まることはない。
+ */
+const zombieAt = (heartbeat: HeartbeatClock): number | null =>
+  heartbeat.awaitingAckSince === null
+    ? null
+    : heartbeat.awaitingAckSince + zombieWindowMs(heartbeat.intervalMs);
+
+/**
  * 次に起きる時刻。**alarm は 1 つしか張れない**ので、いちばん早い期限に合わせる。
  *
  * `idle` と `fatal` が `null` を返すのが効いている —— `fatal` で alarm を残すと
@@ -305,10 +362,14 @@ const nextWakeAt = (state: GatewayState): number | null => {
         ? state.deadline
         : Math.min(state.deadline, state.heartbeat.nextAt);
     case "live":
-      return Math.min(
-        state.heartbeat.nextAt,
-        state.lastEventAt + zombieWindowMs(state.heartbeat.intervalMs),
-      );
+      /*
+        **ACK を待っていない間は、次のハートビートだけが用事。** 待っている間は
+        「打ち切る時刻」も候補に入れる —— 入れないと、静かなサーバーで
+        ゾンビに気づくのが次のハートビートまで遅れる。
+      */
+      return zombieAt(state.heartbeat) === null
+        ? state.heartbeat.nextAt
+        : Math.min(state.heartbeat.nextAt, zombieAt(state.heartbeat) ?? 0);
     case "backoff":
       return state.until;
     case "fatal":
@@ -439,9 +500,9 @@ export const step = (state: GatewayState, input: GatewayInput): GatewayStep => {
     case "hello": {
       if (state.kind !== "connecting") return settle(state);
       /*
-        **ジッタを入れずに 1 間隔ぶん待つ。** 仕様は初回だけ `interval * 乱数` を
-        勧めているが、あれは大量のシャードが同時に張り直すのを散らすためのもので、
-        **接続が 1 本しかない offdesk には散らす相手が居ない**（要件 `I-9`）。
+        **最初の 1 発だけジッタを入れる**（`firstHeartbeatDelayMs`）。仕様の
+        `heartbeat_interval * jitter` そのもの —— 2026-09-16 まで省いていたが、
+        1 間隔ちょうどは窓の縁で、alarm が少し遅れるとそのまま超える。
       */
       return settle(
         {
@@ -449,7 +510,10 @@ export const step = (state: GatewayState, input: GatewayInput): GatewayStep => {
           deadline: input.at + GATEWAY_READY_TIMEOUT_MS,
           heartbeat: {
             intervalMs: input.heartbeatIntervalMs,
-            nextAt: input.at + input.heartbeatIntervalMs,
+            nextAt:
+              input.at +
+              firstHeartbeatDelayMs(input.heartbeatIntervalMs, input.at),
+            awaitingAckSince: null,
           },
         },
         [
@@ -518,12 +582,25 @@ export const step = (state: GatewayState, input: GatewayInput): GatewayStep => {
 
     case "ack":
       /*
-        **ACK も「生きている」の証拠として数える。** 静かなサーバーでは
-        `MESSAGE_CREATE` が何時間も来ないので、dispatch だけを見ていると
-        正常な接続がゾンビ判定される。
+        **ACK だけが「こちらの送信が届いている」の証拠。** 待ちを解いて、
+        `lastEventAt`（画面に出す最終受信時刻）も進める。
+
+        `connecting` の間に来た ACK も待ちを解く —— 握手の途中でも
+        ハートビートは送っているので、返事が来たら記録しないと
+        `live` になった直後に古い待ちが残る。
       */
-      return state.kind === "live"
-        ? settle({ ...state, lastEventAt: input.at })
+      if (state.kind === "live") {
+        return settle({
+          ...state,
+          heartbeat: { ...state.heartbeat, awaitingAckSince: null },
+          lastEventAt: input.at,
+        });
+      }
+      return state.kind === "connecting" && state.heartbeat !== null
+        ? settle({
+            ...state,
+            heartbeat: { ...state.heartbeat, awaitingAckSince: null },
+          })
         : settle(state);
 
     case "reconnect":
@@ -569,6 +646,22 @@ export const step = (state: GatewayState, input: GatewayInput): GatewayStep => {
   }
 };
 
+/**
+ * ハートビートを 1 発送ったあとの時計。
+ *
+ * **次回を `at + interval` にする**（`nextAt + interval` にしない）。DO が
+ * evict されて alarm が遅れた場合、遅れた分を取り戻そうとしてハートビートを
+ * 連続で撃つ形になり、4008（rate limited）で切られる。
+ *
+ * **既に待っているなら開始時刻を進めない。** 進めると、送るたびに猶予が伸びて
+ * 永久に切れなくなる（返事が来ないソケットこそ切りたい相手）。
+ */
+const beat = (heartbeat: HeartbeatClock, at: number): HeartbeatClock => ({
+  ...heartbeat,
+  nextAt: at + heartbeat.intervalMs,
+  awaitingAckSince: heartbeat.awaitingAckSince ?? at,
+});
+
 const onTick = (state: GatewayState, at: number): GatewayStep => {
   switch (state.kind) {
     case "idle":
@@ -587,16 +680,9 @@ const onTick = (state: GatewayState, at: number): GatewayStep => {
         );
       }
       if (state.heartbeat !== null && at >= state.heartbeat.nextAt) {
-        return settle(
-          {
-            ...state,
-            heartbeat: {
-              ...state.heartbeat,
-              nextAt: at + state.heartbeat.intervalMs,
-            },
-          },
-          [{ kind: "heartbeat", seq: state.resume?.seq ?? null }],
-        );
+        return settle({ ...state, heartbeat: beat(state.heartbeat, at) }, [
+          { kind: "heartbeat", seq: state.resume?.seq ?? null },
+        ]);
       }
       return settle(state);
     }
@@ -604,34 +690,24 @@ const onTick = (state: GatewayState, at: number): GatewayStep => {
     case "live": {
       /*
         **ゾンビの検査をハートビートより先に置く。** 逆にすると、返事の来ない
-        ソケットへ延々とハートビートを撃ち続けて、`lastEventAt` が古いまま
-        「送れているから生きている」ように見える。
+        ソケットへ延々とハートビートを撃ち続けることになる。
+
+        見るのは `awaitingAckSince` だけで、**dispatch は根拠にしない**
+        （`HeartbeatClock` の why）—— 賑やかなサーバーでは
+        `MESSAGE_CREATE` が届き続けるので、それを生存の証拠にすると
+        こちらの送信が 1 通も通っていない状態を隠してしまう。
       */
-      if (
-        at - state.lastEventAt >=
-        zombieWindowMs(state.heartbeat.intervalMs)
-      ) {
+      const zombie = zombieAt(state.heartbeat);
+      if (zombie !== null && at >= zombie) {
         return before(
           [disconnect("ACK が途切れた（ゾンビ接続）")],
           startBackoff(at, 1, state.session),
         );
       }
       if (at >= state.heartbeat.nextAt) {
-        /*
-          **次回を `at + interval` にする**（`nextAt + interval` にしない）。
-          DO が evict されて alarm が遅れた場合、遅れた分を取り戻そうとして
-          ハートビートを連続で撃つ形になり、4008（rate limited）で切られる。
-        */
-        return settle(
-          {
-            ...state,
-            heartbeat: {
-              ...state.heartbeat,
-              nextAt: at + state.heartbeat.intervalMs,
-            },
-          },
-          [{ kind: "heartbeat", seq: state.session.seq }],
-        );
+        return settle({ ...state, heartbeat: beat(state.heartbeat, at) }, [
+          { kind: "heartbeat", seq: state.session.seq },
+        ]);
       }
       return settle(state);
     }
@@ -644,10 +720,16 @@ const onTick = (state: GatewayState, at: number): GatewayStep => {
 /**
  * 「素の文がいま届く状態か」。**`live` だけでは足りない** ——
  * ACK が途切れかけているソケットは `live` のまま黙る。
+ *
+ * **判定は `onTick` のゾンビ検査と同じ根拠**（`zombieAt`）。別々に書くと、
+ * 片方だけ直したときに「healthy と出ているのに切られる」がありうる。
  */
-export const isGatewayHealthy = (state: GatewayState, at: number): boolean =>
-  state.kind === "live" &&
-  at - state.lastEventAt < zombieWindowMs(state.heartbeat.intervalMs);
+export const isGatewayHealthy = (state: GatewayState, at: number): boolean => {
+  if (state.kind !== "live") return false;
+
+  const zombie = zombieAt(state.heartbeat);
+  return zombie === null || at < zombie;
+};
 
 /* ---- フレームの読み方（計画 P4 §3-3「判定を DO に書かない」の延長） ---- */
 

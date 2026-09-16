@@ -108,6 +108,7 @@ const ENDPOINT_GATED_ENV_NAMES: readonly string[] = [
   "DISCORD_GUILD_ID",
   "OWNER_DISCORD_USER_ID",
   "OFFDESK_TOKEN",
+  "OFFDESK_ADMIN_TOKEN",
   "FIRE_TOKEN_KEY",
   "PLAN_LINK_SIGNING_KEY",
 ];
@@ -278,7 +279,10 @@ export const web = await Vite("app", {
       // P7a。スレッドの URL を組むのに要る。**秘密ではない**（公開の snowflake）。
       DISCORD_GUILD_ID: varOf("DISCORD_GUILD_ID"),
       OWNER_DISCORD_USER_ID: varOf("OWNER_DISCORD_USER_ID"),
+      // **セッションに渡すのはこちらだけ**（MCP・hooks・計画の置き口）。
       OFFDESK_TOKEN: secretOf("OFFDESK_TOKEN"),
+      // **セッションには渡さない**（`/gateway/*` の張り直しだけを開ける）。
+      OFFDESK_ADMIN_TOKEN: secretOf("OFFDESK_ADMIN_TOKEN"),
       FIRE_TOKEN_KEY: secretOf("FIRE_TOKEN_KEY"),
       // P6。計画リンクの署名鍵（`BETTER_AUTH_SECRET` とは別の値にする）。
       PLAN_LINK_SIGNING_KEY: secretOf("PLAN_LINK_SIGNING_KEY"),

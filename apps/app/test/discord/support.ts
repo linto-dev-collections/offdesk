@@ -45,7 +45,13 @@ export const signedRequest = async (
   } = {},
 ): Promise<Request> => {
   const raw = JSON.stringify(body);
-  const timestamp = overrides.timestamp ?? "1788427539";
+  /*
+    **既定は「いま」。** 署名の窓（`DISCORD_SIGNATURE_WINDOW_MS`）を足したので、
+    固定の過去の値を既定にすると**全部のテストが `stale` で 401 になる。**
+    古さそのものを見るテストだけが `timestamp` を明示する。
+  */
+  const timestamp =
+    overrides.timestamp ?? String(Math.floor(Date.now() / 1000));
   const signature = overrides.signature ?? (await keys.sign(timestamp + raw));
 
   const headers = new Headers({ "content-type": "application/json" });
@@ -72,6 +78,27 @@ export const tamper = (signatureHex: string): string => {
 export const OWNER_ID = "111111111111111111";
 export const STRANGER_ID = "999999999999999999";
 
+/*
+  **interaction の id は毎回違う**（`discord_interactions` が同じ id を 2 回
+  受け付けない）。テストの中で同じ形の interaction を 2 通送る場面が多いので、
+  明示しない限り採番する —— 固定値を既定にすると、2 通目が
+  「処理済み」で弾かれて**落ちる理由が分かりにくくなる。**
+
+  同じ id を 2 回送ることそのものを見るテストは `id` を明示する。
+*/
+let interactionSeq = 0;
+
+/**
+ * **数で足さない。** snowflake は 18 桁 ＝ `Number.MAX_SAFE_INTEGER`（16 桁）の
+ * 外なので、`700000000000000000 + 1` は `700000000000000000` のまま
+ * （実測で踏んだ。id が全部同じになり、2 通目が「処理済み」で弾かれる）。
+ * 桁を文字列として組む。
+ */
+export const nextInteractionId = (): string => {
+  interactionSeq += 1;
+  return `70000000000000${String(interactionSeq).padStart(4, "0")}`;
+};
+
 export const commandInteraction = (input: {
   readonly userId?: string | null;
   readonly task?: string;
@@ -81,7 +108,9 @@ export const commandInteraction = (input: {
   readonly name?: string;
   readonly issue?: number;
   readonly pr?: number;
+  readonly id?: string;
 }) => ({
+  id: input.id ?? nextInteractionId(),
   type: 2,
   token: "interaction-token",
   channel_id: input.channelId ?? "111111111111111111",
@@ -114,7 +143,9 @@ export const componentInteraction = (input: {
   readonly customId: string;
   readonly userId?: string | null;
   readonly messageId?: string;
+  readonly id?: string;
 }) => ({
+  id: input.id ?? nextInteractionId(),
   type: 3,
   token: "interaction-token",
   channel_id: "444444444444444444",

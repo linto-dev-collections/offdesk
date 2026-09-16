@@ -45,6 +45,29 @@ describe("cloud environment の設定が OPERATIONS.md に残っている（§9-
     expect(OPERATIONS).toContain(name);
   });
 
+  /*
+    **管理用のトークンは cloud environment へ置かない**（2026-09-16）。
+
+    環境変数は**その環境を使う誰からも見える**（cloud-environments）ので、
+    置いた瞬間に「リポジトリから入った 1 行で `/gateway/reset` が叩ける」に戻る。
+    §1 に「置かない」と書いてあることと、`/gateway/*` の判定が
+    `OFFDESK_ADMIN_TOKEN` を見ていることの両方を固める。
+  */
+  it("OFFDESK_ADMIN_TOKEN を置かないと書いてある", () => {
+    expect(OPERATIONS).toMatch(/`OFFDESK_ADMIN_TOKEN`[\s\S]{0,80}置かない/);
+  });
+
+  it("/gateway/* が OFFDESK_ADMIN_TOKEN で判定している", () => {
+    const source = readSource("apps/app/src/worker/index.ts");
+    const block =
+      /const gateway = new Hono[\s\S]*?app\.route\("\/gateway", gateway\)/.exec(
+        source,
+      )?.[0] ?? "";
+
+    expect(block).toContain("c.env.OFFDESK_ADMIN_TOKEN");
+    expect(block).not.toContain("c.env.OFFDESK_TOKEN)");
+  });
+
   it("推奨のタイムアウトが domain の定数と一致する", () => {
     expect(OPERATIONS).toContain(
       `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=${RECOMMENDED_CLIENT_IDLE_TIMEOUT_MS}`,
@@ -247,17 +270,23 @@ describe("offdesk 自身が marketplace", () => {
   });
 
   /*
-    **版が 2 か所にある**（marketplace の目録と、プラグイン自身のマニフェスト）。
-    ずれると「入れた版」と「名乗る版」が食い違い、**切り分けのときに
-    どちらを信じてよいか分からなくなる。**
+    **版はプラグインのマニフェストにだけ置く**（2026-09-16 に片方へ寄せた）。
+
+    以前はここが「2 か所の一致」を見ていたが、**両方に書くこと自体が
+    公式に禁じられている** —— Claude Code は `plugin.json` の値を無警告で採り、
+    marketplace 側の値は読まないので、古いマニフェストが目録の版を黙って覆う。
+    https://code.claude.com/docs/en/plugin-marketplaces
+
+    一致を見る先が無くなったわけではない。**どちらか片方にしか無いこと**を
+    `release/mcp-template.test.ts` の「plugin の版」が見ている。
   */
-  it("marketplace とプラグインの version が一致する", () => {
+  it("marketplace の目録が version を持たない", () => {
     const manifest = JSON.parse(
       readSource(`${PLUGIN_DIR}/.claude-plugin/plugin.json`),
     ) as { version?: string };
 
     expect(manifest.version).toBeDefined();
-    expect(MARKETPLACE.plugins[0]?.version).toBe(manifest.version);
+    expect(MARKETPLACE.plugins[0]?.version).toBeUndefined();
   });
 });
 

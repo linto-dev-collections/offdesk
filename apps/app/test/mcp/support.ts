@@ -36,6 +36,11 @@ export const mcpCall = async (
     readonly rawBody?: string;
     /** ブラウザから来たことにする（`Origin` の検査）。**付けないのが既定。** */
     readonly origin?: string;
+    /**
+     * `MCP-Protocol-Version` ヘッダ。**付けないのが既定**（仕様の後方互換規定で
+     * 「無ければ `2025-03-26`」とみなされる側を、ふだんのテストが通る）。
+     */
+    readonly protocolVersion?: string;
   } = {},
 ): Promise<McpCall> => {
   const headers = new Headers({
@@ -43,6 +48,9 @@ export const mcpCall = async (
     accept: "application/json, text/event-stream",
   });
   if (overrides.origin !== undefined) headers.set("origin", overrides.origin);
+  if (overrides.protocolVersion !== undefined) {
+    headers.set("mcp-protocol-version", overrides.protocolVersion);
+  }
 
   const authorization =
     overrides.authorization === undefined

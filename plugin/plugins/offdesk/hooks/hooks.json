@@ -12,7 +12,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "mcp__(plugin_offdesk_)?offdesk__.*",
+        "matcher": "^mcp__(plugin_offdesk_)?offdesk__(ask_human|ask_wait|report)$",
         "hooks": [
           {
             "type": "command",

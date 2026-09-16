@@ -1,7 +1,10 @@
 import {
   answerAskByButton,
+  attachInteractionRun,
+  claimInteraction,
   createDb,
   findAsk,
+  type InteractionKind,
   listProjects,
   markRunResumed,
 } from "@offdesk/db";
@@ -14,6 +17,7 @@ import {
   projectNames,
   resolveProject,
 } from "@offdesk/domain";
+import { launchFailureText } from "@offdesk/usecase";
 import type { WorkerEnv } from "../env.ts";
 import { discordRestConfig, launchRunWithEnv } from "../session/launch.ts";
 import {
@@ -38,6 +42,8 @@ const REPLY_UPDATE_MESSAGE = 7;
 type InteractionOption = { name?: string; value?: unknown };
 
 export type Interaction = {
+  /** Discord が振る snowflake。**冪等化の鍵**（`claimInteraction`）。 */
+  id?: string;
   type?: number;
   token?: string;
   channel_id?: string;
@@ -101,15 +107,45 @@ export const handleInteraction = async (
     );
   }
 
-  if (interaction.type === TYPE_MESSAGE_COMPONENT) {
-    return await handleAnswerButton(interaction, env, ctx, userId ?? "");
-  }
+  const kind: InteractionKind | null =
+    interaction.type === TYPE_MESSAGE_COMPONENT
+      ? "component"
+      : interaction.type === TYPE_APPLICATION_COMMAND
+        ? "command"
+        : null;
 
-  if (interaction.type !== TYPE_APPLICATION_COMMAND) {
+  if (kind === null) return ephemeral("この操作には対応していません。");
+
+  /*
+    **1 つの interaction は 1 回しか処理しない**（2026-09-16）。
+
+    署名の検査は「Discord が作った本物か」しか言わないので、**同じ本物の再送**は
+    そのまま通る —— `/offdesk` なら 1 回ごとに routine の実行回数を 1 つ消費し、
+    Anthropic の `fire` には idempotency key が無い（`Each successful request
+    creates a new session.`）ので、**こちらで止めるしかない。**
+
+    **`waitUntil` に入る前に確保する。** 中で確保すると、応答を返した後の
+    競走になる（再送が先に走り出せる）。
+
+    id が無い interaction はそもそも Discord のものではない。**通さない。**
+  */
+  const interactionId = interaction.id?.trim() ?? "";
+  if (interactionId === "") {
+    console.warn("[discord] id の無い interaction を拒否しました");
     return ephemeral("この操作には対応していません。");
   }
 
-  return await handleCommand(interaction, env, ctx, userId ?? "");
+  const db = createDb(env.DB);
+  if (!(await claimInteraction(db, { id: interactionId, kind }))) {
+    console.warn("[discord] 処理済みの interaction を弾きました", {
+      interactionId,
+    });
+    return ephemeral("この操作は既に受け付けています。");
+  }
+
+  return kind === "component"
+    ? await handleAnswerButton(interaction, env, ctx, userId ?? "")
+    : await handleCommand(interaction, env, ctx, userId ?? "", interactionId);
 };
 
 const handleCommand = async (
@@ -117,6 +153,7 @@ const handleCommand = async (
   env: WorkerEnv,
   ctx: Waitable,
   requesterId: string,
+  interactionId: string,
 ): Promise<Response> => {
   if (interaction.data?.name !== COMMAND_NAME) {
     return ephemeral("知らないコマンドです。");
@@ -184,6 +221,16 @@ const handleCommand = async (
         target: resolvedTarget,
       });
 
+      /*
+        **どの `/offdesk` がどの run になったかを残す**（監査用）。
+        冪等の判定は id の有無だけで決まっているので、ここが落ちても何も壊れない。
+      */
+      await attachInteractionRun(
+        createDb(env.DB),
+        interactionId,
+        outcome.runKey,
+      );
+
       if (interactionToken === undefined) return;
 
       /*
@@ -203,11 +250,16 @@ const handleCommand = async (
       const branch = branchFor(resolvedTarget);
       const onBranch = branch === null ? "" : `\nブランチ: \`${branch}\``;
 
+      /*
+        **失敗の文言は 1 か所（`launchFailureText`）から出す。** スレッドへ出す
+        通知と、ここで依頼者へ返す ephemeral が食い違うと、
+        「起動したか分からない」が片方だけ「起動できませんでした」になる。
+      */
       await editOriginalResponse(discordRestConfig(env), interactionToken, {
         content:
-          outcome.failureReason === null
+          outcome.failure === null
             ? `起動しました（${outcome.runKey}）。${where}${onBranch}`
-            : `起動できませんでした（${outcome.runKey}）: ${outcome.failureReason}`,
+            : launchFailureText(outcome.runKey, outcome.failure),
         flags: EPHEMERAL,
       });
     })(),

@@ -19,6 +19,7 @@ const TABLES_CHILD_FIRST = [
   "inbox",
   "events",
   "asks",
+  "discord_interactions",
   "runs",
   "project_fire_credentials",
   "projects",

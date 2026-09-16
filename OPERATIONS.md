@@ -11,7 +11,7 @@
 | --- | --- |
 | GitHub の secret | `ALCHEMY_PASSWORD` / `ALCHEMY_STATE_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` ＋ 下の表の値 |
 | 手元の `.env.local` 2 本 | 同じ値（ローカル開発用）。ルート = Alchemy CLI だけ／`apps/app/` = Vite・wrangler・Alchemy |
-| claude.ai の cloud environment | `OFFDESK_URL` / `OFFDESK_TOKEN`（§3） |
+| claude.ai の cloud environment | `OFFDESK_URL` / `OFFDESK_TOKEN`（§3）。**`OFFDESK_ADMIN_TOKEN` は置かない** |
 
 **`.env.local` が 2 本ある理由**: `@cloudflare/vite-plugin` は `apps/app/.env.local` を `dist/<worker>/.dev.vars` へ平文で書き出す。Worker が要らない秘密をそちらに置かない。
 
@@ -32,6 +32,7 @@
 | `DISCORD_GUILD_ID` | 画面のリンクが出ない（他は動く） |
 | `OWNER_DISCORD_USER_ID` | 誰も `/offdesk` を使えない |
 | `OFFDESK_TOKEN` | MCP・hooks・計画の置き口が全部 401 |
+| `OFFDESK_ADMIN_TOKEN` | `/gateway/*` が Bearer で叩けない（画面からは通る） |
 | `FIRE_TOKEN_KEY` | 起動できない。**回せない**（変えると既存の暗号文が開かない。回すなら先に全プロジェクトのトークンを再発行して §2 の「直す」） |
 | `PLAN_LINK_SIGNING_KEY` | `/p/*` が 401・`finish` が 503 |
 
@@ -42,6 +43,23 @@ gh secret set OFFDESK_TOKEN     # 1. 本番の正本
 # 2. apps/app/.env.local の該当行も書き換える
 # 3. OFFDESK_TOKEN は claude.ai の cloud environment にも同じ値を入れる（§3）
 git push                        # 4. main への push でデプロイ
+```
+
+### トークンが 2 本ある理由
+
+| 名前 | 開ける口 | 置き場 |
+| --- | --- | --- |
+| `OFFDESK_TOKEN` | `/mcp`・`/hooks/*`・`/plans/*` | Worker ＋ **cloud environment** |
+| `OFFDESK_ADMIN_TOKEN` | `/gateway/status`・`/reset`・`/ensure` | Worker だけ |
+
+**cloud environment の環境変数は「その環境を使う誰からも見える」**と公式が明記している（[cloud environments](https://code.claude.com/docs/en/cloud-environments)）。そして routine は**承認プロンプト無しで自律実行される**（[routines](https://code.claude.com/docs/en/routines)）。
+
+つまりセッション側に置く値が開ける範囲は、そのまま「リポジトリ・PR・fetch した Web から入った 1 行が届く範囲」になる。`/gateway/reset` は常駐接続を落とし、identify のレート制限（1 日 1000 回）を消費する口なので、**セッションからは届かない側に置く。**
+
+**2 本は必ず違う値にする。** 同じ値を入れると分離が消えるが、コードからは分かれて見えるので気付けない。
+
+```sh
+gh secret set OFFDESK_ADMIN_TOKEN   # openssl rand -base64 32
 ```
 
 ---
@@ -108,6 +126,7 @@ git push                        # 4. main への push でデプロイ
 | Allowed domains | Worker のホスト名（**スキーム無し**） | MCP の失敗が「Authorization が拒否された」に化ける |
 | 環境変数 | `OFFDESK_URL` = `https://<worker>` | 繋がらない |
 | 環境変数 | `OFFDESK_TOKEN` = Worker の secret と同じ値 | 全部 401 |
+| 環境変数 | ~~`OFFDESK_ADMIN_TOKEN`~~ **置かない** | —— 置くと `/gateway/reset` がセッションから届く（§1） |
 | 環境変数 | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0` | 質問の直後に Claude が勝手に先へ進む |
 | 環境変数 | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=3600000` | **5 分ちょうどで握りが落ちる** |
 | 環境変数 | `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=10000` | **run が畳まれず 🏁 も出ない**（無音で落ちる）。§3-5 |
@@ -120,17 +139,27 @@ Custom のネットワークにするときは「**Also include default list of 
 
 ```bash
 #!/bin/bash
-# 版: 3   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
+# 版: 4   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
 set -u
+ok=0
 for home in /home/user /root; do
   [ -d "$home" ] || continue
   HOME="$home" claude plugin marketplace add linto-dev-collections/offdesk || true
   HOME="$home" claude plugin install offdesk@offdesk || true
+
+  if HOME="$home" claude plugin list 2>/dev/null | grep -q offdesk; then
+    echo "OFFDESK-PLUGIN-OK: installed under ${home}"
+    ok=1
+  else
+    echo "OFFDESK-PLUGIN-MISSING: not installed under ${home}" >&2
+  fi
 done
+[ "$ok" = 1 ] || echo "OFFDESK-PLUGIN-FAILED: no HOME got the plugin; runs will start but stay silent on Discord" >&2
 exit 0
 ```
 
 - **`|| true` と `exit 0` を外さない** —— 非ゼロで終わるとセッションが起動しない
+- **入ったかを最後に確かめる。** `|| true` だけだと**全部の失敗が消える** —— 起動はするのに Discord へ一言も届かないセッションができ、症状は「そもそも run が立たなかった」と見分けが付かない。環境のビルドログで **`OFFDESK-PLUGIN-FAILED`** を探せばよい形にしておく
 - **`HOME` を外さない** —— root で走るので `$HOME` が session と違う
 - **claude.ai のアカウント側にプラグインを入れない** —— この組織では同期が届かず、将来届くと 2 つ載る
 - **入ったかを cloud session の中から見るときは `claude plugin list`**（Bash 経由）。
@@ -239,7 +268,47 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 
 ---
 
-## 8. コストを見る
+## 8. データの保持
+
+**意図して無期限。** 消す cron も、run を消す口も置いていない。
+
+| 表 | 何が残るか |
+| --- | --- |
+| `runs` | `prompt`（依頼者が `/offdesk` に書いた本文）・状態・cc セッションの URL |
+| `asks` | 問いと回答の本文 |
+| `events` | `report` の本文・掃除が残した 1 行 |
+| `inbox` | スレッドに書かれた素の文 |
+| `plans` | 行だけ（本文は R2） |
+| `discord_interactions` | 処理済みの interaction id と、それが立てた run |
+| R2 の `plans/` | 実装計画のファイル |
+
+**これは「消し忘れ」ではなく方針。** 持ち主 1 人が使う道具で、run 詳細（`/runs/<run_key>`）から過去の判断を辿れることが値打ちになっている —— 期限で消すと、**古い run の「なぜそうしたか」が読めなくなる。**
+
+### 消したくなったら
+
+**run 単位で手で消す。** 外部キーは全部 `RESTRICT` なので、**子から順に**消す（1 つでも残っていると `runs` の DELETE が落ちる）。
+
+```sh
+# <RUN_KEY> は OFFDESK- で始まる 24 文字
+wrangler d1 execute offdesk-db-prod --remote --command "
+  DELETE FROM plans WHERE last_published_run_key = '<RUN_KEY>';
+  DELETE FROM inbox WHERE run_key = '<RUN_KEY>' OR taken_by_run_key = '<RUN_KEY>';
+  DELETE FROM events WHERE run_key = '<RUN_KEY>';
+  DELETE FROM asks  WHERE run_key = '<RUN_KEY>';
+  DELETE FROM discord_interactions WHERE run_key = '<RUN_KEY>';
+  DELETE FROM runs  WHERE run_key = '<RUN_KEY>';
+"
+```
+
+**R2 は別に消す。** 台帳の行を消しても、`plans/<plan_id>/` のオブジェクトは残る（画面の「計画を取り消す」を先に押せば両方消える）。
+
+### `discord_interactions` だけは増え続ける
+
+`/offdesk` とボタンを押した回数ぶん、1 行ずつ増える。**1 行は 100 バイト未満**なので放っておいてよいが、気になったら**終わった run のぶんだけ**消す（上の手順に含めてある）。**生きている run のぶんは消さない** —— 消すと、その interaction の再送が 2 本目を立てられるようになる。
+
+---
+
+## 9. コストを見る
 
 **常駐 DO が 1 つであること**が唯一の効く見張り。1 つで月 約 324,000 GB-s（含有枠 400,000 の内側）で、**2 つ目を足すと超える。**
 宣言が 1 つであることは `release/single-gateway.test.ts` が見張る。
@@ -247,7 +316,7 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 
 ---
 
-## 9. 人が測るもの
+## 10. 人が測るもの
 
 自動テストで固められない 2 つ。**測ったらこの表に書き足す。**
 
@@ -258,7 +327,7 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 
 ---
 
-## 10. 困ったときに読む順
+## 11. 困ったときに読む順
 
 | 症状 | 先に見るところ |
 | --- | --- |

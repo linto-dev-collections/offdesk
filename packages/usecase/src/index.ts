@@ -24,11 +24,12 @@ export type {
 } from "./get-run-detail.ts";
 export { getRunDetail, mergeTimeline } from "./get-run-detail.ts";
 export type {
+  LaunchFailure,
   LaunchRunDeps,
   LaunchRunInput,
   LaunchRunOutcome,
 } from "./launch-run.ts";
-export { launchRun } from "./launch-run.ts";
+export { launchFailureText, launchRun } from "./launch-run.ts";
 export type {
   ListPlansDeps,
   PlanRow,

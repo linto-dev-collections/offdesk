@@ -1,4 +1,15 @@
-import { and, asc, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
 import type { Db } from "../client.ts";
 import { projects, runs } from "../schema/offdesk.ts";
 
@@ -185,6 +196,20 @@ export type StaleQueuedRun = {
   readonly createdAt: number;
 };
 
+/**
+ * 生きている合図が 1 つも無い `queued` を引く。
+ *
+ * **`activity_at` が立っている行は引かない**（2026-09-16）。あれは hook が
+ * 道具を呼ぶたびに書く印なので、**立っている ＝ セッションは動いている。**
+ *
+ * 2026-09-16 まで `created_at` だけを見ていた。`fire` の POST が
+ * 「届いたか分からない」形で落ちた run を `queued` のまま残すようにしたので
+ * （`FireOutcome` の `certain`）、**実は動いているセッションを 10 分で
+ * 畳んでしまう**経路ができる —— hook の印を根拠に外す。
+ *
+ * `ask_human` が来た run はそもそも `queued` を抜ける（`markRunWaiting`）ので、
+ * ここに残るのは「起動したが offdesk をまだ 1 度も呼んでいない」run だけ。
+ */
 export const listStaleQueuedRuns = async (
   db: Db,
   before: number,
@@ -193,7 +218,13 @@ export const listStaleQueuedRuns = async (
   const rows = await db
     .select({ runKey: runs.runKey, createdAt: runs.createdAt })
     .from(runs)
-    .where(and(eq(runs.status, "queued"), lt(runs.createdAt, new Date(before))))
+    .where(
+      and(
+        eq(runs.status, "queued"),
+        lt(runs.createdAt, new Date(before)),
+        isNull(runs.activityAt),
+      ),
+    )
     .orderBy(asc(runs.createdAt))
     .limit(limit);
 
@@ -203,6 +234,7 @@ export const listStaleQueuedRuns = async (
   }));
 };
 
+/** **引いたときと同じ条件を UPDATE にも書く**（引いてから合図が来た run を外す）。 */
 export const failQueuedRun = async (
   db: Db,
   runKey: string,
@@ -216,7 +248,13 @@ export const failQueuedRun = async (
       failureReason: reason,
       finishedAt: new Date(nowMs),
     })
-    .where(and(eq(runs.runKey, runKey), eq(runs.status, "queued")))
+    .where(
+      and(
+        eq(runs.runKey, runKey),
+        eq(runs.status, "queued"),
+        isNull(runs.activityAt),
+      ),
+    )
     .returning({ runKey: runs.runKey });
 
   return rows.length > 0;

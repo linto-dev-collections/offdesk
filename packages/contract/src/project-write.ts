@@ -125,13 +125,23 @@ export const ProjectConflict = z.object({
 export type ProjectConflict = z.infer<typeof ProjectConflict>;
 
 /**
- * トークンを実際に叩いて確かめた結果（`checkFireToken`）。
+ * トークンが通らなかった理由。
  *
  * **理由は種別だけ。** 応答の本文も URL も載せない（脅威 12）——
- * 読む人が取るべき行動はこの 3 つで分かれる。
+ * 読む人が取るべき行動がこれで分かれる。
+ *
+ * **`token_required` だけ叩く前に出る**（2026-09-16）。別の routine を指すように
+ * `fireUrl` を変えたのにトークンを省略した編集で、**指す先が変われば
+ * いま持っているトークンは必ず通らない**（トークンは routine ごとに発行される）。
+ * 以前は通していて、気付くのは次に `/offdesk` を叩いた人が 401 を見たとき。
  */
 export const FireTokenProblem = z.object({
-  kind: z.enum(["rejected", "routine_not_found", "unreachable"]),
+  kind: z.enum([
+    "rejected",
+    "routine_not_found",
+    "unreachable",
+    "token_required",
+  ]),
 });
 export type FireTokenProblem = z.infer<typeof FireTokenProblem>;
 

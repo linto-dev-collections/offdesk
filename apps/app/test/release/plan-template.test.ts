@@ -285,6 +285,19 @@ describe("置けるのは作業領域の下だけ（プロンプトインジェ�
     mkdirSync(path.join(root, "outside"), { recursive: true });
     writeFileSync(path.join(root, "outside", "secret.txt"), "s\n");
     symlinkSync(path.join(root, "outside"), path.join(root, "wd", "escape"));
+    /*
+      **1 ファイルへの symlink**（2026-09-16 に塞いだ穴）。`[ -f "$target" ]` は
+      リンクを辿るので、作業領域の中に置いたリンク 1 本で**リンク先の中身**が
+      署名付き URL に載っていた —— 検査していたのは親ディレクトリだけだった。
+
+      **通る側のディレクトリとは分けて置く**（`myplan` は綺麗なまま）。
+    */
+    mkdirSync(path.join(root, "wd", "linked"), { recursive: true });
+    writeFileSync(path.join(root, "wd", "linked", "a.md"), "hi\n");
+    symlinkSync(
+      path.join(root, "outside", "secret.txt"),
+      path.join(root, "wd", "linked", "leak.md"),
+    );
     return root;
   };
 
@@ -323,6 +336,25 @@ describe("置けるのは作業領域の下だけ（プロンプトインジェ�
 
     expect(verdict.status).not.toBe(0);
     expect(verdict.stderr).toContain("plans must live under");
+  });
+
+  /*
+    **リンクそのものを拒む。** 「リンク先を解決して外なら落とす」ではなく
+    「リンクなら落とす」にしてあるのは、作業領域**の中**を指すリンクを通しても
+    得が無いから —— 通す条件が増えるほど、検査を読み違える余地が増える。
+
+    **黙って飛ばさない。** ディレクトリごと指したときにリンクを無視して
+    残りだけ上げると、Claude は全部を渡したつもりで URL を貼る。
+  */
+  it.each([
+    ["1 ファイルへの symlink を直に指す", "wd/linked/leak.md"],
+    ["symlink を含むディレクトリごと指す", "wd/linked"],
+  ])("%s ときリンク先の中身は出さない", (_label, relative) => {
+    const root = workspace();
+    const verdict = run(path.join(root, relative), path.join(root, "wd"));
+
+    expect(verdict.status).not.toBe(0);
+    expect(verdict.stderr).toContain("symlinks are not published");
   });
 
   it("作業領域そのものが無ければ落ちる（黙って全部を通さない）", () => {

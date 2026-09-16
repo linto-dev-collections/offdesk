@@ -309,11 +309,17 @@ describe("拾うのはいちばん新しい未配達の問い", () => {
   /*
     **古い方を拾うと、会話が先へ進んだ後に昔の答えが蘇る**（要件 `F-B3`）。
     `created_at` を明示して並びを決める —— 同じミリ秒だと順序が決まらない。
+
+    **いまからの相対で置く。** 固定の過去の値にすると、待ちの上限
+    （`ASK_ABANDON_MS`）を過ぎた問いになって `closed` が返る（2026-09-16 に踏んだ）。
+    ここで見たいのは「2 つのうちどちらを拾うか」だけ。
   */
+  const OLDER_AT = Date.now() - 120_000;
+  const NEWER_AT = Date.now() - 60_000;
   it("未配達が 2 つあるとき、新しい方を拾う", async () => {
     const runKey = await seedDroppedHold({
       askId: OLD_ASK,
-      createdAt: 1_788_400_000_000,
+      createdAt: OLDER_AT,
     });
     await insertAsk(
       db(),
@@ -323,7 +329,7 @@ describe("拾うのはいちばん新しい未配達の問い", () => {
         question: "そのあとはどうしますか",
         options: ["C", "D"],
       },
-      1_788_400_060_000,
+      NEWER_AT,
     );
     await answerAskByButton(
       createDb(env.DB),
@@ -349,12 +355,12 @@ describe("拾うのはいちばん新しい未配達の問い", () => {
     const runKey = await seedDroppedHold({
       askId: OLD_ASK,
       answer: "A で進める",
-      createdAt: 1_788_400_000_000,
+      createdAt: OLDER_AT,
     });
     await insertAsk(
       db(),
       { askId: NEW_ASK, runKey, question: "そのあとは", options: ["C"] },
-      1_788_400_060_000,
+      NEWER_AT,
     );
 
     const { response, settle } = await mcpCall(

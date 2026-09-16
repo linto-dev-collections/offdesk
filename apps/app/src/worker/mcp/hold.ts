@@ -6,7 +6,11 @@ import {
   markRunResumed,
   touchRunHeld,
 } from "@offdesk/db";
-import { type HoldConfig, holdLimitMs } from "@offdesk/domain";
+import {
+  ASK_ABANDONED_NEXT,
+  type HoldConfig,
+  holdLimitMs,
+} from "@offdesk/domain";
 import { type JsonRpcId, progressNotification, toolStatus } from "./jsonrpc.ts";
 
 /*
@@ -41,6 +45,19 @@ export type HoldInput = {
   readonly config: HoldConfig;
   readonly progressToken: string | number | null;
   readonly waitUntil: (promise: Promise<unknown>) => void;
+  /**
+   * **この問いを待つのをやめる時刻**（`asks.created_at` ＋ `abandonMs`）。
+   *
+   * 握りの上限（`deadline`）とは別の時計。あちらに達したら `pending` を返して
+   * `ask_wait` に引き継ぐが、**こちらに達したら run ごと終わりにする** ——
+   * 上限が無いと、答えない依頼者 1 人でセッションが無期限に生き残る。
+   */
+  readonly abandonAt: number;
+  /**
+   * 待ちの上限に達した**直後**に呼ばれる。台帳を畳むのは呼ぶ側の仕事
+   * （このファイルは run の状態を知らない）。
+   */
+  readonly onAbandoned?: () => Promise<void>;
   /** 省略すると「問いは既に出ている」とみなして握るだけ（P3b の拾い直しが使う）。 */
   readonly onOpen?: HoldOpener;
   /**
@@ -135,6 +152,26 @@ export const holdForAnswer = (input: HoldInput): Response => {
         }
 
         const now = Date.now();
+
+        /*
+          **待ちそのものの上限を、握りの上限より先に見る。**
+
+          逆にすると、上限に達した瞬間の 1 周が `pending` を返し、
+          Claude は `ask_wait` を呼び直して**もう 1 周ぶん待つ。**
+          その `ask_wait` がここへ来て `closed` を返すので結果は同じだが、
+          往復が 1 つ増えるうえ「いつ終わったか」が読みにくくなる。
+        */
+        if (now >= input.abandonAt) {
+          await send(
+            toolStatus(
+              id,
+              { status: "closed", ask_id: askId, next: ASK_ABANDONED_NEXT },
+              true,
+            ),
+          );
+          if (input.onAbandoned !== undefined) await input.onAbandoned();
+          return;
+        }
 
         if (now >= deadline) {
           await send(

@@ -116,6 +116,7 @@ describe("gateway.status", () => {
 
     expect(JSON.stringify(body)).not.toContain(env.DISCORD_BOT_TOKEN);
     expect(JSON.stringify(body)).not.toContain(env.OFFDESK_TOKEN);
+    expect(JSON.stringify(body)).not.toContain(env.OFFDESK_ADMIN_TOKEN);
   });
 });
 

@@ -26,6 +26,8 @@ export default defineConfig({
           DISCORD_GUILD_ID: "999999999999999999",
           OWNER_DISCORD_USER_ID: "111111111111111111",
           OFFDESK_TOKEN: "test-offdesk-token-0123456789abcdef",
+          // わざと別の値（`/gateway/*` は片方でしか通らないことを見る）。
+          OFFDESK_ADMIN_TOKEN: "test-offdesk-admin-token-0123456789abcdef",
           // base64 の 32 バイト（AES-256）。テスト専用の固定値。
           FIRE_TOKEN_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
           PLAN_LINK_SIGNING_KEY: "test-plan-link-signing-key-0123456789",

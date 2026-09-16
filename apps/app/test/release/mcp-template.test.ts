@@ -113,6 +113,42 @@ describe("/mcp が run_worker_first に入っている", () => {
   });
 });
 
+/*
+  **version は 1 か所にだけ書く**（2026-09-16）。
+
+  Claude Code は `plugin.json` の値を**無警告で**採る（marketplace 側の値は
+  読まれない）ので、両方に書くと**古いマニフェストが marketplace の版を黙って
+  覆う。** しかも固定した版は「更新が届く条件」そのもの ——
+  版を据え置いたままコードだけ直すと、既に入れている環境には永遠に届かない。
+  https://code.claude.com/docs/en/plugin-marketplaces
+*/
+describe("plugin の版", () => {
+  const MANIFEST = JSON.parse(
+    readSource("plugin/plugins/offdesk/.claude-plugin/plugin.json"),
+  ) as { version?: string };
+
+  const MARKETPLACE = JSON.parse(
+    readSource(".claude-plugin/marketplace.json"),
+  ) as {
+    plugins: readonly { name: string; version?: string }[];
+  };
+
+  it("plugin.json が semver を名乗る", () => {
+    expect(MANIFEST.version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  /** `--strict` は版が無いと警告を出すので、消すのではなく**片方に寄せる。** */
+  it("marketplace の entry には書かない", () => {
+    for (const entry of MARKETPLACE.plugins) {
+      expect(entry.version).toBeUndefined();
+    }
+  });
+
+  it("README が版の運用を書いている", () => {
+    expect(readSource("plugin/README.md")).toContain("## Versioning");
+  });
+});
+
 describe("plugin の hooks.json", () => {
   it("権限の宣言を持たない（承認は hook が出す）", () => {
     expect(SETTINGS).not.toHaveProperty("permissions");
@@ -133,6 +169,41 @@ describe("plugin の hooks.json", () => {
       OFFDESK_TOOL_MATCHER,
     ]);
     expect(allowing[0]?.hooks[0]?.type).toBe("command");
+  });
+
+  /*
+    **承認は 3 本だけに出す**（2026-09-16）。Claude Code は matcher を
+    `new RegExp(matcher).test(toolName)` に**アンカー無しで**掛けるので、
+    `.*` で終わる matcher は「このサーバーが将来足すツール全部」に
+    無条件の allow を出す約束になる。routine には承認する人が居ない。
+  */
+  describe("matcher が広がらない", () => {
+    it.each(TOOL_NAMES)("%s を拾う", (tool) => {
+      for (const prefix of [
+        "mcp__offdesk__",
+        "mcp__plugin_offdesk_offdesk__",
+      ]) {
+        expect(new RegExp(OFFDESK_TOOL_MATCHER).test(`${prefix}${tool}`)).toBe(
+          true,
+        );
+      }
+    });
+
+    it.each([
+      "mcp__offdesk__delete_everything",
+      "mcp__plugin_offdesk_offdesk__delete_everything",
+      "mcp__offdesk__ask_human_and_more",
+      "prefix_mcp__offdesk__ask_human",
+      "mcp__other__ask_human",
+    ])("%s は拾わない", (tool) => {
+      expect(new RegExp(OFFDESK_TOOL_MATCHER).test(tool)).toBe(false);
+    });
+
+    /** 名指しを崩す書き方そのものを禁じる（読み違えたときに緑にならないように）。 */
+    it("ワイルドカードで終わっていない", () => {
+      expect(OFFDESK_TOOL_MATCHER.endsWith("$")).toBe(true);
+      expect(OFFDESK_TOOL_MATCHER).not.toContain("__.*");
+    });
   });
 
   it("フックが PreToolUse を allow する JSON を出す", () => {

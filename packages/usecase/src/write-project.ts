@@ -1,4 +1,5 @@
 import type { FireTokenVerdict } from "@offdesk/domain";
+import { sameRoutine } from "@offdesk/domain";
 import type { ProjectSummaryView } from "./list-projects.ts";
 import { toProjectSummary } from "./list-projects.ts";
 
@@ -63,20 +64,27 @@ export type ProjectStoreWritePort = {
       readonly last4: string;
     },
   ) => Promise<{ readonly projectId: string; readonly inserted: boolean }>;
-  readonly update: (input: {
-    readonly id: string;
-    readonly discordChannelId: string;
-    readonly repoUrl: string;
-    readonly fireUrl: string;
-  }) => Promise<boolean>;
-  readonly replaceCredential: (
-    projectId: string,
+  /**
+   * **暗号文も一緒に渡す口**（2026-09-16 に 1 本へ畳んだ）。
+   *
+   * 以前は「行を書き換える」と「資格情報を差し替える」の 2 本で、
+   * **後半が落ちると新しい `fire_url` と古いトークンが残った。**
+   * 実装は D1 の `batch`（＝ 原子性の単位）。
+   */
+  readonly update: (
+    input: {
+      readonly id: string;
+      readonly discordChannelId: string;
+      readonly repoUrl: string;
+      readonly fireUrl: string;
+    },
+    /** **`null` は据え置き**（資格情報の行に触らない）。 */
     encrypted: {
       readonly ciphertext: Uint8Array;
       readonly iv: Uint8Array;
       readonly keyVersion: number;
       readonly last4: string;
-    },
+    } | null,
   ) => Promise<boolean>;
   readonly setDisabled: (id: string, disabled: boolean) => Promise<boolean>;
 };
@@ -99,10 +107,15 @@ export type WriteProjectProblem =
   | { readonly kind: "token"; readonly reason: FireTokenBadReason }
   | { readonly kind: "not_found" };
 
+/**
+ * **`token_required` だけ叩く前に出る。** 残り 3 つは実際に Anthropic を
+ * 叩いた結果（`FireTokenVerdict`）。
+ */
 export type FireTokenBadReason =
   | "rejected"
   | "routine_not_found"
-  | "unreachable";
+  | "unreachable"
+  | "token_required";
 
 export type WriteProjectResult =
   | { readonly ok: true; readonly project: ProjectSummaryView }
@@ -187,15 +200,21 @@ export const createProject = async (
  * **トークンを渡されたときだけ確かめて差し替える。** 省略なら資格情報の行に
  * 触らないので、チャンネルを変えるだけの編集でローテーションが起きない。
  *
- * **据え置きのときも `fireUrl` は書き換わる。** 別の routine を指すように
- * 直したのにトークンを入れ忘れると**前の routine のトークンが残る**ので、
- * 呼ぶ側（画面）は URL を変えたときに入力を促す。ここでは拒まない ——
- * 同じ routine の URL を整形し直すだけの編集も通したいため。
+ * **別の routine を指すように変えるならトークンは必須**（2026-09-16）。
+ * トークンは routine ごとに発行される（`fire` のドキュメント）ので、
+ * 指す先が変われば**いま持っているトークンは必ず通らない** ——
+ * 以前はここを通していて、気付くのは次に `/offdesk` を叩いた人が
+ * 401 を見たとき（そのときには誰も編集画面を見ていない）。
+ * **同じ routine の URL を整形し直すだけの編集は今までどおり通る**
+ * （`sameRoutine` が識別子で比べる）。
  */
 export const updateProject = async (
   deps: WriteProjectDeps,
   input: UpdateProjectInput,
 ): Promise<WriteProjectResult> => {
+  const current = await deps.store.findWithMask(input.id);
+  if (current === null) return { ok: false, problem: { kind: "not_found" } };
+
   const owner = await deps.store.findByChannel(input.discordChannelId);
   if (owner !== null && owner.id !== input.id) {
     return {
@@ -205,28 +224,46 @@ export const updateProject = async (
   }
 
   const token = input.fireToken;
+
+  if (token === undefined && !sameRoutine(current.fireUrl, input.fireUrl)) {
+    return {
+      ok: false,
+      problem: { kind: "token", reason: "token_required" },
+    };
+  }
+
+  /*
+    **確かめてから暗号化する。** 順序を入れ替えると、通らないトークンを
+    暗号化する仕事が 1 つ増えるだけでなく、**失敗の理由が 2 つ並ぶ。**
+  */
+  let encrypted: Awaited<ReturnType<FireTokenCipherPort["encrypt"]>> | null =
+    null;
   if (token !== undefined) {
     const bad = await verifyToken(deps, {
       fireUrl: input.fireUrl,
       fireToken: token,
     });
     if (bad !== null) return { ok: false, problem: bad };
+
+    encrypted = await deps.cipher.encrypt(token);
   }
 
+  /*
+    **1 回の呼び出しで書く**（実装は D1 の `batch`）。分けると、
+    後半が落ちたときに**新しい `fire_url` と古いトークン**が残る。
+  */
   if (
-    !(await deps.store.update({
-      id: input.id,
-      discordChannelId: input.discordChannelId,
-      repoUrl: input.repoUrl,
-      fireUrl: input.fireUrl,
-    }))
+    !(await deps.store.update(
+      {
+        id: input.id,
+        discordChannelId: input.discordChannelId,
+        repoUrl: input.repoUrl,
+        fireUrl: input.fireUrl,
+      },
+      encrypted,
+    ))
   ) {
     return { ok: false, problem: { kind: "not_found" } };
-  }
-
-  if (token !== undefined) {
-    const encrypted = await deps.cipher.encrypt(token);
-    await deps.store.replaceCredential(input.id, encrypted);
   }
 
   return await summaryOf(deps, input.id);

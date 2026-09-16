@@ -105,7 +105,7 @@ describe("うまくいったとき", () => {
 
     const outcome = await launch();
 
-    expect(outcome.failureReason).toBeNull();
+    expect(outcome.failure).toBeNull();
     expect(outcome.threadId).toBe("444444444444444444");
 
     const [run] = await runRows();
@@ -238,7 +238,8 @@ describe("起動に失敗したとき", () => {
 
     const outcome = await launch();
 
-    expect(outcome.failureReason).toContain("500");
+    expect(outcome.failure?.reason).toContain("500");
+    expect(outcome.failure?.certain).toBe(true);
 
     const [run] = await runRows();
     expect(run?.status).toBe("failed");
@@ -255,9 +256,9 @@ describe("起動に失敗したとき", () => {
 
     const outcome = await launch();
 
-    expect(outcome.failureReason).not.toContain("anthropic.com");
-    expect(outcome.failureReason).not.toContain("sk-ant");
-    expect(outcome.failureReason).not.toContain("trig_");
+    expect(outcome.failure?.reason).not.toContain("anthropic.com");
+    expect(outcome.failure?.reason).not.toContain("sk-ant");
+    expect(outcome.failure?.reason).not.toContain("trig_");
   });
 
   /*
@@ -282,7 +283,7 @@ describe("起動に失敗したとき", () => {
       target: NO_TARGET,
     });
 
-    expect(outcome.failureReason).toContain("fire_url");
+    expect(outcome.failure?.reason).toContain("fire_url");
     expect(stub.calls.every((call) => call.url.includes("discord.com"))).toBe(
       true,
     );
@@ -299,7 +300,7 @@ describe("起動に失敗したとき", () => {
 
     const outcome = await launch();
 
-    expect(outcome.failureReason).toBeNull();
+    expect(outcome.failure).toBeNull();
     expect(outcome.ccSessionUrl).toBeNull();
 
     const [run] = await runRows();
@@ -329,5 +330,66 @@ describe("同じスレッドに 2 本目", () => {
     expect(
       rows.filter((r) => r.thread_id === "444444444444444444"),
     ).toHaveLength(1);
+  });
+});
+
+/*
+  **「起動しなかった」と「起動したか分からない」は別物**（2026-09-16）。
+
+  `fire` には idempotency key が無く、**成功した POST は必ず新しいセッションを
+  作る**（`Each successful request creates a new session.`）。だから応答を
+  受け取れなかっただけの失敗を `failed` に畳むと、**実は走っているセッション**が
+  最初の `ask_human` で `closed` を受け取って止まる。
+*/
+describe("起動したか確認できなかったとき", () => {
+  const unreachable = () =>
+    stubOutbound([
+      ["discord.com", discordOk({ threadId: "444444444444444444" })],
+      [
+        "api.anthropic.com",
+        () => {
+          throw new TypeError("network error");
+        },
+      ],
+    ]);
+
+  it("run は queued のまま（failed に畳まない）", async () => {
+    unreachable();
+
+    const outcome = await launch();
+
+    expect(outcome.failure?.certain).toBe(false);
+
+    const [run] = await runRows();
+    expect(run?.status).toBe("queued");
+    expect(run?.finished_at).toBeNull();
+    expect(run?.failure_reason).toBeNull();
+  });
+
+  /** **打ち直すなと言う。** 2 本が同じスレッドで動く形を作らせない。 */
+  it("スレッドへの通知が「確認できませんでした」と言う", async () => {
+    const stub = unreachable();
+
+    await launch();
+
+    const posted = stub
+      .callsTo("/messages")
+      .map((call) => call.body)
+      .join("\n");
+    expect(posted).toContain("確認できませんでした");
+    expect(posted).toContain("すぐに打ち直さないでください");
+  });
+
+  /** 応答が返った失敗（`5xx` も含む）は**言い切れる** —— そちらは畳む。 */
+  it("応答が返った失敗は今までどおり failed", async () => {
+    stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", () => jsonResponse({ error: "nope" }, 503)],
+    ]);
+
+    const outcome = await launch();
+
+    expect(outcome.failure?.certain).toBe(true);
+    expect((await runRows())[0]?.status).toBe("failed");
   });
 });

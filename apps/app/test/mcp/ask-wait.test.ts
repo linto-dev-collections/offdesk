@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   askRows,
   db,
+  eventRows,
   runStatus,
   seedRun,
   seedTwoProjects,
@@ -302,5 +303,99 @@ describe("ask_human の pending から ask_wait へ繋がる（脅威 16 の出�
     await settleHeld();
 
     expect(stub.calls).toEqual([]);
+  });
+});
+
+/*
+  **待ちの上限**（`ASK_ABANDON_MS`。2026-09-16 に足した）。
+
+  `ASK_HOLD_MS` は 1 回の握りの長さで、上限に達したら `pending` を返して
+  `ask_wait` に引き継ぐ —— **あれだけでは待ちは終わらない。** 依頼者が
+  答えないまま放っておくと、セッションは 15 分ごとに呼び直して無期限に生き残る。
+  沈黙の掃除にも掛からない（あれが見る `held_at` は握りが 15 秒ごとに書き直す）。
+*/
+describe("答えないまま上限に達したとき", () => {
+  /** 問いは 60 秒前に出ているので、上限を 10 ミリ秒にすれば必ず過ぎている。 */
+  const OVER = { ASK_ABANDON_MS: "10" } as const;
+
+  it("closed を返して、ストリームを開かない", async () => {
+    const runKey = await seedAsk({});
+
+    const { response, settle } = await mcpCall(waitCall(ASK_ID), { env: OVER });
+    // **開く前に分かっているものは開かない**（SSE ではなく JSON で返る）。
+    expect(response.headers.get("content-type")).toContain("application/json");
+    const body = (await response.json()) as Record<string, unknown>;
+    await settle();
+
+    expect(toolStatusOf(body)).toMatchObject({
+      status: "closed",
+      ask_id: ASK_ID,
+    });
+    expect(isToolError(body)).toBe(true);
+    expect(await runStatus(runKey)).toBe("done");
+  });
+
+  /** **無言で捨てない**（要件 `N-7`）。run 詳細の時系列に 1 行並ぶ。 */
+  it("events に 1 行残る", async () => {
+    const runKey = await seedAsk({});
+
+    const { settle } = await mcpCall(waitCall(ASK_ID), { env: OVER });
+    await settle();
+
+    const events = (await eventRows()).filter((row) => row.run_key === runKey);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe("done");
+    expect(events[0]?.body).toContain("24 時間");
+  });
+
+  /*
+    **畳んだあとは `gateRun` が門になる。** もう一度呼ばれても
+    `closed` のままで、`events` が 2 行に増えない。
+  */
+  it("もう一度呼んでも closed のまま（記録は増えない）", async () => {
+    const runKey = await seedAsk({});
+
+    await (await mcpCall(waitCall(ASK_ID), { env: OVER })).settle();
+    const second = await mcpCall(waitCall(ASK_ID), { env: OVER });
+    const body = (await second.response.json()) as Record<string, unknown>;
+    await second.settle();
+
+    expect(toolStatusOf(body).status).toBe("closed");
+    expect(
+      (await eventRows()).filter((row) => row.run_key === runKey),
+    ).toHaveLength(1);
+  });
+
+  /** **上限の手前なら今までどおり握る。** 上限を入れて待てなくしていない。 */
+  it("上限の手前なら握る", async () => {
+    await seedAsk({});
+
+    const { response, settle } = await mcpCall(waitCall(ASK_ID), {
+      env: { ASK_HOLD_MS: "40", ASK_ABANDON_MS: "600000" },
+    });
+    const frames = await readSse(response);
+    await settle();
+
+    expect(toolStatusOf(finalResult(frames)).status).toBe("pending");
+  });
+
+  /*
+    **`ask_human` の拾い直しも同じ門を通る。** `ask_wait` だけに置くと、
+    `ask_id` を失ったセッションが `(再送)` で無限に待ち直せてしまう。
+  */
+  it("ask_human の拾い直しでも closed", async () => {
+    const runKey = await seedAsk({});
+
+    const { response, settle } = await mcpCall(
+      askHumanCall({ runKey, question: RESEND_QUESTION }),
+      { env: OVER },
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+    await settle();
+
+    expect(toolStatusOf(body).status).toBe("closed");
+    expect(await runStatus(runKey)).toBe("done");
+    // **質問を出し直さない。**
+    expect(stub.callsTo("/messages")).toHaveLength(0);
   });
 });

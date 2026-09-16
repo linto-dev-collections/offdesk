@@ -14,7 +14,9 @@ export type WorkerEnv = {
   DISCORD_APPLICATION_ID: string;
   DISCORD_GUILD_ID: string;
   OWNER_DISCORD_USER_ID: string;
+
   OFFDESK_TOKEN: string;
+  OFFDESK_ADMIN_TOKEN: string;
   FIRE_TOKEN_KEY: string;
 
   PLAN_LINK_SIGNING_KEY: string;
@@ -24,6 +26,7 @@ export type WorkerEnv = {
   ASK_PROGRESS_MS?: string;
   ASK_SILENT_HOLD_MS?: string;
   ASK_TOUCH_MS?: string;
+  ASK_ABANDON_MS?: string;
 
   INBOUND_HELD_WINDOW_MS?: string;
   INBOUND_ACTIVE_WINDOW_MS?: string;
@@ -44,6 +47,7 @@ export const ENDPOINT_GATED_ENV_NAMES = [
   "DISCORD_GUILD_ID",
   "OWNER_DISCORD_USER_ID",
   "OFFDESK_TOKEN",
+  "OFFDESK_ADMIN_TOKEN",
   "FIRE_TOKEN_KEY",
   "PLAN_LINK_SIGNING_KEY",
 ] as const satisfies readonly (keyof WorkerEnv)[];

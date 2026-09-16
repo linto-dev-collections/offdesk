@@ -15,6 +15,48 @@ export const hostOf = (url: string): string => {
   return host.split(":")[0] ?? "";
 };
 
+/**
+ * `fire_url` の中の routine 識別子（`/v1/claude_code/routines/<id>/fire` の `<id>`）。
+ *
+ * **`new URL` を使わない。** このパッケージは `lib: ["ES2022"]` ／ `types: []` で
+ * 閉じてあるので `URL` は型として見えない（`hostOf` が同じ理由で手で切っている）。
+ *
+ * 形が読めなければ `null`。**`null` を「同じ」の根拠にしない**（`sameRoutine`）。
+ */
+export const ROUTINE_PATH = "/v1/claude_code/routines/";
+
+export const routineIdOf = (url: string): string | null => {
+  const at = url.indexOf(ROUTINE_PATH);
+  if (at < 0) return null;
+
+  const rest = url.slice(at + ROUTINE_PATH.length);
+  const end = rest.search(/[/?#]/);
+  const id = end < 0 ? rest : rest.slice(0, end);
+
+  return id === "" ? null : id;
+};
+
+/**
+ * 2 つの `fire_url` が**同じ routine を指しているか。**
+ *
+ * トークンは routine ごとに発行される（`fire` のドキュメント:
+ * 「The bearer token is scoped to a single routine」）ので、**指す先が変われば
+ * いま持っているトークンは必ず通らない。** 画面の注意書きだけに頼ると、
+ * 貼り替えたのにトークンを入れ忘れた行が残り、**次に `/offdesk` を叩いた人が
+ * 401 を見る**（そのときには誰も編集画面を見ていない）。
+ *
+ * **識別子が読めないときは URL 全体で比べる。** 読めないことを「同じ」に
+ * 倒すと、形が変わった日にこの検査が静かに無効になる。
+ */
+export const sameRoutine = (a: string, b: string): boolean => {
+  const left = routineIdOf(a);
+  const right = routineIdOf(b);
+
+  return left !== null && right !== null
+    ? left === right
+    : a.trim() === b.trim();
+};
+
 export type FireUrlProblem = { readonly message: string };
 
 export const checkFireUrl = (url: string): FireUrlProblem | null =>
@@ -27,9 +69,30 @@ export type FireSession = {
   readonly ccSessionUrl: string;
 };
 
+/**
+ * 起動の結果。
+ *
+ * **失敗には 2 種類ある**（2026-09-16 に分けた）。
+ *
+ * `fire` には idempotency key が無く、**成功した POST は必ず新しいセッションを
+ * 作る**（`Each successful request creates a new session.`）。だから
+ * 「応答が返ってこなかった」を `failed` に畳むのは嘘になりうる ——
+ * POST は Anthropic 側で成功していて、通信だけが切れたのかもしれない。
+ *
+ * - `certain: true` … **起動していないと言い切れる**（宛先が不正・トークンが無い・
+ *   `4xx`/`5xx` の応答が返った）。台帳を `failed` にしてよい
+ * - `certain: false` … **届いたか分からない**（`fetch` が例外を投げた）。
+ *   台帳は `queued` のままにする —— 実は動いていた場合、そのセッションが
+ *   `ask_human` を呼んだ時点で run は先へ進む（終端に畳んでいると
+ *   `closed` を返して止めてしまう）。動いていなければ cron が 10 分後に畳む
+ */
 export type FireOutcome =
   | { readonly ok: true; readonly session: FireSession | null }
-  | { readonly ok: false; readonly reason: string };
+  | {
+      readonly ok: false;
+      readonly certain: boolean;
+      readonly reason: string;
+    };
 
 /**
  * fire トークンを**セッションを作らずに**確かめた結果（要件 `F-H3` の `check`）。

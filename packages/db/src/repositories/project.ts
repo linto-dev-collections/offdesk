@@ -147,6 +147,32 @@ export const findProjectByChannel = async (
   return row === undefined ? null : toProjectRecord(row);
 };
 
+/** 資格情報の行を入れ直す 1 文（`upsert` と `update` が同じものを使う）。 */
+const credentialUpsert = (
+  db: Db,
+  projectId: string,
+  encrypted: EncryptedFireToken,
+) =>
+  db
+    .insert(projectFireCredentials)
+    .values({
+      projectId,
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      keyVersion: encrypted.keyVersion,
+      last4: encrypted.last4,
+    })
+    .onConflictDoUpdate({
+      target: projectFireCredentials.projectId,
+      set: {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        keyVersion: encrypted.keyVersion,
+        last4: encrypted.last4,
+        updatedAt: new Date(),
+      },
+    });
+
 /**
  * プロジェクトと資格情報を**1 回の batch で**入れる（D1 は対話的トランザクションを
  * 持たないので batch が原子性の単位）。片方だけ入ると「有効なのにトークンが無い」に
@@ -180,25 +206,7 @@ export const upsertProjectWithCredential = async (
           updatedAt: new Date(),
         },
       }),
-    db
-      .insert(projectFireCredentials)
-      .values({
-        projectId,
-        ciphertext: encrypted.ciphertext,
-        iv: encrypted.iv,
-        keyVersion: encrypted.keyVersion,
-        last4: encrypted.last4,
-      })
-      .onConflictDoUpdate({
-        target: projectFireCredentials.projectId,
-        set: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          keyVersion: encrypted.keyVersion,
-          last4: encrypted.last4,
-          updatedAt: new Date(),
-        },
-      }),
+    credentialUpsert(db, projectId, encrypted),
   ]);
 
   return { projectId, inserted: existing === undefined };
@@ -244,17 +252,22 @@ export const findAnyProjectByChannel = async (
 };
 
 /**
- * **資格情報に触らずに**プロジェクトの行だけを書き換える。
+ * プロジェクトの行を書き換える。**トークンを渡されたときは同じ batch で入れ直す。**
  *
- * **`upsertProjectWithCredential` と分けてあるのが要点。** あちらは必ず暗号文を
- * 上書きするので、**チャンネルを変えるだけでもトークンを渡さないといけない** ——
- * claude.ai のトークンは発行時に 1 度しか表示されず、再発行すると前のものが
- * 失効するので、**据え置きの経路が無いとローテーションを強制することになる**
+ * **`encrypted` が `null` なら資格情報の行に触らない。** claude.ai のトークンは
+ * 発行時に 1 度しか表示されず、再発行すると前のものが失効するので、
+ * **据え置きの経路が無いとローテーションを強制することになる**
  * （`ProjectUpdateInput` の `fireToken` が任意なのはこのため）。
+ *
+ * **2 文を分けて実行しない**（2026-09-16 に batch へ寄せた）。以前は
+ * 「先に `projects` を UPDATE → そのあと資格情報を差し替え」で、**後半が落ちると
+ * 新しい `fire_url` と古いトークンが残った**（次の `/offdesk` が 401 になる）。
+ * D1 は対話的トランザクションを持たないので `batch` が原子性の単位で、
+ * 途中で落ちれば列全体が巻き戻る。`upsertProjectWithCredential` と同じ構え。
  *
  * 名前は引数に無い。**一致の鍵なので変えない**（OPERATIONS §2）。
  */
-export const updateProjectKeepingCredential = async (
+export const updateProjectRow = async (
   db: Db,
   input: {
     readonly id: string;
@@ -262,8 +275,9 @@ export const updateProjectKeepingCredential = async (
     readonly repoUrl: string;
     readonly fireUrl: string;
   },
+  encrypted: EncryptedFireToken | null,
 ): Promise<boolean> => {
-  const result = await db
+  const update = db
     .update(projects)
     .set({
       discordChannelId: input.discordChannelId,
@@ -274,39 +288,19 @@ export const updateProjectKeepingCredential = async (
     .where(eq(projects.id, input.id))
     .returning({ id: projects.id });
 
-  return result.length > 0;
-};
+  if (encrypted === null) return (await update).length > 0;
 
-/**
- * トークンだけを差し替える。**プロジェクトの行には触らない。**
- *
- * `projectId` は外部キーなので、存在しない id で呼ぶと D1 が落とす ——
- * 呼ぶ側（`updateProject`）が先に行の有無を確かめている。
- */
-export const replaceFireCredential = async (
-  db: Db,
-  projectId: string,
-  encrypted: EncryptedFireToken,
-): Promise<void> => {
-  await db
-    .insert(projectFireCredentials)
-    .values({
-      projectId,
-      ciphertext: encrypted.ciphertext,
-      iv: encrypted.iv,
-      keyVersion: encrypted.keyVersion,
-      last4: encrypted.last4,
-    })
-    .onConflictDoUpdate({
-      target: projectFireCredentials.projectId,
-      set: {
-        ciphertext: encrypted.ciphertext,
-        iv: encrypted.iv,
-        keyVersion: encrypted.keyVersion,
-        last4: encrypted.last4,
-        updatedAt: new Date(),
-      },
-    });
+  /*
+    **`batch` の戻り値は文ごとの結果の配列。** 1 文目（`returning` 付きの UPDATE）
+    が空なら、その id の行が無かった —— 資格情報の側は外部キーで落ちるので、
+    ここへは来ない。
+  */
+  const [updated] = await db.batch([
+    update,
+    credentialUpsert(db, input.id, encrypted),
+  ]);
+
+  return (updated?.length ?? 0) > 0;
 };
 
 /**

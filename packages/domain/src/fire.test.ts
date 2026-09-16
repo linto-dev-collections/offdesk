@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { checkFireUrl, isFireUrlAllowed } from "./fire.ts";
+import {
+  checkFireUrl,
+  isFireUrlAllowed,
+  routineIdOf,
+  sameRoutine,
+} from "./fire.ts";
 
 const REAL = "https://api.anthropic.com/v1/claude_code/routines/trig_abc/fire";
 
@@ -41,5 +46,58 @@ describe("checkFireUrl", () => {
 
     expect(problem).not.toBeNull();
     expect(problem?.message).not.toContain("evil.example.com");
+  });
+});
+
+/*
+  **トークンは routine ごと**（`fire` のドキュメント: "The bearer token is scoped
+  to a single routine"）。指す先が変わればいま持っているトークンは必ず通らないので、
+  画面はそれを保存の前に止める（`updateProject`）。
+*/
+describe("routineIdOf", () => {
+  const base = "https://api.anthropic.com/v1/claude_code/routines";
+
+  it.each([
+    [`${base}/trig_01ABC/fire`, "trig_01ABC"],
+    [`${base}/trig_01ABC/fire?x=1`, "trig_01ABC"],
+    [`${base}/trig_01ABC`, "trig_01ABC"],
+  ])("%s → %s", (url, expected) => {
+    expect(routineIdOf(url)).toBe(expected);
+  });
+
+  it.each(["https://api.anthropic.com/v1/messages", `${base}/`, ""])(
+    "読めない形（%o）は null",
+    (url) => {
+      expect(routineIdOf(url)).toBeNull();
+    },
+  );
+});
+
+describe("sameRoutine", () => {
+  const fire = (id: string): string =>
+    `https://api.anthropic.com/v1/claude_code/routines/${id}/fire`;
+
+  it("同じ識別子なら同じ", () => {
+    expect(sameRoutine(fire("trig_01A"), fire("trig_01A"))).toBe(true);
+  });
+
+  it("末尾のクエリが違っても同じ", () => {
+    expect(sameRoutine(fire("trig_01A"), `${fire("trig_01A")}?v=2`)).toBe(true);
+  });
+
+  it("識別子が違えば違う", () => {
+    expect(sameRoutine(fire("trig_01A"), fire("trig_01B"))).toBe(false);
+  });
+
+  /*
+    **読めない形を「同じ」に倒さない。** 倒すと、URL の形が変わった日に
+    この検査が静かに無効になる（症状は「トークンだけ古いまま残る」）。
+  */
+  it("識別子が読めなければ URL 全体で比べる", () => {
+    const odd = "https://api.anthropic.com/v1/other";
+
+    expect(sameRoutine(odd, odd)).toBe(true);
+    expect(sameRoutine(odd, `${odd}/x`)).toBe(false);
+    expect(sameRoutine(odd, fire("trig_01A"))).toBe(false);
   });
 });

@@ -52,12 +52,13 @@ export const fireRoutine = async (
     console.warn("[fire] fire_url が許可された宛先ではありません", {
       projectId: input.projectId,
     });
-    return { ok: false, reason: urlProblem.message };
+    return { ok: false, certain: true, reason: urlProblem.message };
   }
 
   if (input.text.length > MAX_FIRE_TEXT_LENGTH) {
     return {
       ok: false,
+      certain: true,
       reason: `指示が長すぎます（${input.text.length} 字 / 上限 ${MAX_FIRE_TEXT_LENGTH} 字）`,
     };
   }
@@ -75,10 +76,18 @@ export const fireRoutine = async (
       projectId: input.projectId,
       cause: error instanceof Error ? error.message : "unknown",
     });
-    return { ok: false, reason: "fire トークンを復号できませんでした" };
+    return {
+      ok: false,
+      certain: true,
+      reason: "fire トークンを復号できませんでした",
+    };
   }
   if (token === null) {
-    return { ok: false, reason: "fire トークンが登録されていません" };
+    return {
+      ok: false,
+      certain: true,
+      reason: "fire トークンが登録されていません",
+    };
   }
 
   let response: Response;
@@ -101,7 +110,18 @@ export const fireRoutine = async (
       error:
         error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
     });
-    return { ok: false, reason: "routine の起動に届きませんでした" };
+    /*
+      **`certain: false`。** ここへ来たのは「応答を受け取れなかった」であって
+      「送っていない」ではない —— `fire` に idempotency key は無く、POST が
+      Anthropic 側で成功していればセッションは既に走っている。
+      台帳を `failed` に畳むと、そのセッションが `ask_human` を呼んだ瞬間に
+      `closed` を返して止めてしまう（`FireOutcome` の why）。
+    */
+    return {
+      ok: false,
+      certain: false,
+      reason: "routine の起動に届きませんでした",
+    };
   }
 
   /*
@@ -114,8 +134,13 @@ export const fireRoutine = async (
       projectId: input.projectId,
       status: response.status,
     });
+    /*
+      **応答が返っている ＝ セッションは作られていない**（`certain: true`）。
+      `429` も `5xx` も、Anthropic が受け付けなかったことをその場で言っている。
+    */
     return {
       ok: false,
+      certain: true,
       reason: `routine が ${response.status} を返しました`,
     };
   }

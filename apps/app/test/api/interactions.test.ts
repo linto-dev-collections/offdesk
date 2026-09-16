@@ -53,6 +53,9 @@ const fireOk = () =>
 
 const EPHEMERAL = 64;
 
+/** 同じ id を 2 回送るテスト用（既定の採番を使うと毎回違う値になる）。 */
+const REPLAY_ID = "700000000000009999";
+
 describe("PING", () => {
   it("type 1 を返す", async () => {
     const { response, settle } = await send({ type: 1 });
@@ -383,4 +386,193 @@ describe("3 秒の壁（要件 F-A5・I-10）", () => {
     await settle();
     expect(stub.calls.length).toBeGreaterThan(0);
   });
+});
+
+/*
+  **同じ interaction を 2 回処理しない**（2026-09-16）。
+
+  Ed25519 の検査は「Discord が作った本物か」しか言わないので、
+  **同じ本物の再送**はそのまま通る —— `/offdesk` の 1 回は routine の実行回数を
+  1 つ消費し、Anthropic の `fire` には idempotency key が無い
+  （`Each successful request creates a new session.`）ので、こちらで止める。
+*/
+describe("interaction の冪等化", () => {
+  const interactionRows = async (): Promise<
+    readonly { id: string; kind: string; run_key: string | null }[]
+  > => {
+    const { results } = await env.DB.prepare(
+      "SELECT id, kind, run_key FROM discord_interactions ORDER BY id",
+    ).all<{ id: string; kind: string; run_key: string | null }>();
+    return results;
+  };
+
+  it("同じ id の 2 通目は起動しない", async () => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", fireOk],
+    ]);
+    await seedTwoProjects();
+
+    const body = commandInteraction({ task: "READMEを直す", id: REPLAY_ID });
+
+    const first = await send(body);
+    await first.settle();
+    const fired = stub.callsTo("api.anthropic.com").length;
+
+    const second = await send(body);
+    const replyBody = (await second.response.json()) as {
+      data?: { content?: string };
+    };
+    await second.settle();
+
+    expect(replyBody.data?.content).toContain("既に受け付けています");
+    expect(stub.callsTo("api.anthropic.com")).toHaveLength(fired);
+    expect(await runRows()).toHaveLength(1);
+  });
+
+  /** どの `/offdesk` がどの run になったかを残す（監査用）。 */
+  it("確保した行に run を結び付ける", async () => {
+    stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", fireOk],
+    ]);
+    await seedTwoProjects();
+
+    const { settle } = await send(
+      commandInteraction({ task: "READMEを直す", id: REPLAY_ID }),
+    );
+    await settle();
+
+    const [row] = await interactionRows();
+    expect(row?.id).toBe(REPLAY_ID);
+    expect(row?.kind).toBe("command");
+    expect(row?.run_key).toBe((await runRows())[0]?.run_key);
+  });
+
+  /*
+    **起動できなかった interaction も確保したままにする。** 解放すると、
+    落ちた要求の再送が 2 本目を立てられる —— 依頼者はもう一度 `/offdesk` を
+    打てばよい（新しい id になる）ので、取りこぼしよりも二重起動を避ける。
+  */
+  it("起動に失敗しても id は解放しない", async () => {
+    stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", () => jsonResponse({ error: "nope" }, 500)],
+    ]);
+    await seedTwoProjects();
+
+    const body = commandInteraction({ task: "READMEを直す", id: REPLAY_ID });
+    const first = await send(body);
+    await first.settle();
+
+    const second = await send(body);
+    const replyBody = (await second.response.json()) as {
+      data?: { content?: string };
+    };
+    await second.settle();
+
+    expect(replyBody.data?.content).toContain("既に受け付けています");
+    expect(await runRows()).toHaveLength(1);
+  });
+
+  /** **PING は台帳に触らない**（Discord は疎通確認で何度でも送ってくる）。 */
+  it("PING は確保しない", async () => {
+    const { response, settle } = await send({ type: 1, id: REPLAY_ID });
+    await settle();
+
+    expect(await response.json()).toEqual({ type: 1 });
+    expect(await interactionRows()).toEqual([]);
+  });
+
+  /** id が無い interaction は Discord のものではない。 */
+  it("id が無ければ起動しない", async () => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", fireOk],
+    ]);
+    await seedTwoProjects();
+
+    const { id: _id, ...withoutId } = commandInteraction({
+      task: "READMEを直す",
+    });
+    const { settle } = await send(withoutId);
+    await settle();
+
+    expect(stub.callsTo("api.anthropic.com")).toHaveLength(0);
+    expect(await runRows()).toHaveLength(0);
+  });
+});
+
+/*
+  **署名が正しいことは「いま来た」を意味しない**（`DISCORD_SIGNATURE_WINDOW_MS`）。
+  一度撮られた正規の要求は、何か月後でも同じ Ed25519 の検査を通る。
+*/
+describe("署名の新しさ", () => {
+  const at = (offsetMs: number): string =>
+    String(Math.floor((Date.now() + offsetMs) / 1000));
+
+  it.each([
+    ["1 時間前", -60 * 60_000],
+    ["1 時間後", 60 * 60_000],
+    ["ちょうど 6 分前", -6 * 60_000],
+  ])("%s の署名は 401", async (_label, offsetMs) => {
+    const stub = stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", fireOk],
+    ]);
+    await seedTwoProjects();
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      await signedRequest(keys, commandInteraction({ task: "READMEを直す" }), {
+        timestamp: at(offsetMs),
+      }),
+      { ...env, DISCORD_PUBLIC_KEY: keys.publicKeyHex },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(401);
+    expect(stub.calls).toHaveLength(0);
+    expect(await runRows()).toHaveLength(0);
+  });
+
+  it.each([
+    ["1 分前", -60_000],
+    ["いま", 0],
+  ])("%s の署名は通る", async (_label, offsetMs) => {
+    stubOutbound([
+      ["discord.com", discordOk({})],
+      ["api.anthropic.com", fireOk],
+    ]);
+    await seedTwoProjects();
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      await signedRequest(keys, commandInteraction({ task: "READMEを直す" }), {
+        timestamp: at(offsetMs),
+      }),
+      { ...env, DISCORD_PUBLIC_KEY: keys.publicKeyHex },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(200);
+  });
+
+  /** **数字でない timestamp を 1970 年として読まない。** */
+  it.each(["", "   ", "not-a-number", "17884.27539"])(
+    "timestamp が %o なら 401",
+    async (timestamp) => {
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(
+        await signedRequest(keys, { type: 1 }, { timestamp }),
+        { ...env, DISCORD_PUBLIC_KEY: keys.publicKeyHex },
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(401);
+    },
+  );
 });

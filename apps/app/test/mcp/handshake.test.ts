@@ -1,4 +1,8 @@
-import { SERVER_INSTRUCTIONS } from "@offdesk/domain";
+import {
+  MCP_INSTRUCTIONS_BUDGET,
+  MCP_TEXT_LIMIT,
+  SERVER_INSTRUCTIONS,
+} from "@offdesk/domain";
 import { describe, expect, it } from "vitest";
 import { mcpCall, mcpJson } from "./support.ts";
 
@@ -60,6 +64,50 @@ describe("initialize", () => {
   it("instructions が「待ってもトークンを消費しない」を名乗る", async () => {
     // これが無いと Claude が待つのを惜しみ、勝手に決めて先へ進む（要件 `F-B1` の眼目）。
     expect(SERVER_INSTRUCTIONS).toContain("トークンは消費しません");
+  });
+});
+
+/*
+  **切られたことは誰にも通知されない**（2026-09-16 に見張りを足した）。
+
+  Claude Code は server instructions と各 tool description を **2048 文字**で切り、
+  `…[truncated]` を付けて捨てる（`instructions.length <= 2048` の素の比較。
+  2.1.273 のバンドルで実測）。**バイト数ではないので日本語でも 1 文字 1。**
+
+  超えた日に起きるのは「説明の途中で切れた文章が Claude に渡る」で、
+  症状は**ツールの使い方を守らない**という読みにくい形になる。
+  上限ちょうどではなく余白（`MCP_INSTRUCTIONS_BUDGET`）で止める。
+  https://code.claude.com/docs/en/mcp
+*/
+describe("2048 文字で切られる文章（MCP の上限）", () => {
+  it("上限より予算の方が小さい", () => {
+    expect(MCP_INSTRUCTIONS_BUDGET).toBeLessThan(MCP_TEXT_LIMIT);
+  });
+
+  it("SERVER_INSTRUCTIONS が予算に収まる", () => {
+    expect(SERVER_INSTRUCTIONS.length).toBeLessThanOrEqual(
+      MCP_INSTRUCTIONS_BUDGET,
+    );
+  });
+
+  /** 各ツールの説明も**1 本ずつ**同じ長さで切られる。 */
+  it("tool description が全部上限に収まる", async () => {
+    const { body } = await mcpJson({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const tools = (
+      body.result as { tools: readonly { name: string; description: string }[] }
+    ).tools;
+
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect([tool.name, tool.description.length <= MCP_TEXT_LIMIT]).toEqual([
+        tool.name,
+        true,
+      ]);
+    }
   });
 });
 
@@ -125,6 +173,63 @@ describe("modern（2026-07-28）の要求", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ error: { code: -32601 } });
+  });
+});
+
+/*
+  `MCP-Protocol-Version` ヘッダ（`2025-06-18` 以降。2026-09-16 に足した）。
+
+  クライアントは初期化のあと**すべての要求に**このヘッダを載せ、
+  仕様は「知らない値・対応していない値なら `400`」を MUST と定めている。
+  **無いのは正常**（`2025-03-26` とみなす後方互換規定）。
+  https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+*/
+describe("MCP-Protocol-Version ヘッダ", () => {
+  const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+
+  it.each(["2025-11-25", "2025-06-18", "2025-03-26"])(
+    "話せる版（%s）なら通る",
+    async (protocolVersion) => {
+      const { body } = await mcpJson(ping, { protocolVersion });
+
+      expect(body.result).toEqual({});
+    },
+  );
+
+  it("ヘッダが無ければ通る（2025-03-26 とみなす）", async () => {
+    const { body } = await mcpJson(ping);
+
+    expect(body.result).toEqual({});
+  });
+
+  it.each(["2026-07-28", "2024-11-05", "not-a-date"])(
+    "話せない版（%s）は 400 ＋ -32022 で話せる版を並べる",
+    async (protocolVersion) => {
+      const { body, response } = await mcpJson(ping, { protocolVersion });
+
+      expect(response.status).toBe(400);
+      expect(body).toMatchObject({
+        error: {
+          code: -32022,
+          data: {
+            supported: ["2025-11-25", "2025-06-18", "2025-03-26"],
+            requested: protocolVersion,
+          },
+        },
+      });
+    },
+  );
+
+  /*
+    **`initialize` も同じ扱い。** 交渉の前だからと免除すると、
+    ヘッダと本文で別の版を名乗る要求がそのまま通る。
+  */
+  it("initialize でも話せない版のヘッダは 400", async () => {
+    const { response } = await mcpJson(initialize("2025-11-25"), {
+      protocolVersion: "2026-07-28",
+    });
+
+    expect(response.status).toBe(400);
   });
 });
 
@@ -304,10 +409,62 @@ describe("そのほかのメソッド", () => {
     });
   });
 
-  it("method が無い要求はプロトコルのエラーで返す（落ちない）", async () => {
-    const { body } = await mcpJson({ jsonrpc: "2.0", id: 9 });
+  /*
+    **要求・通知・応答のどれでもない本文**（`method` も `result` も `error` も無い）。
 
-    expect(body).toMatchObject({ id: 9, error: { code: -32601 } });
+    2026-09-16 まで `-32601`（未対応のメソッド）で返していたが、
+    **これは「メソッドを知らない」ではなく「要求になっていない」** ——
+    仕様は受け取れない入力に HTTP のエラー（400）を返すと定めている。
+  */
+  it("要求の形になっていない本文は 400 ＋ -32600", async () => {
+    const { body, response } = await mcpJson({ jsonrpc: "2.0", id: 9 });
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ id: 9, error: { code: -32600 } });
+  });
+
+  /*
+    **クライアントからの応答は `202`**（仕様の MUST）。
+
+    握りは progress 通知を流すので、相手が応答を返してくることがある。
+    以前は `method` が無いだけで `-32601` を返していた ——
+    相手から見れば「自分の送った応答にサーバーが応答した」という
+    終わりの無い形になる。
+  */
+  it.each([
+    ["result を持つ応答", { jsonrpc: "2.0", id: 4, result: {} }],
+    ["error を持つ応答", { jsonrpc: "2.0", id: 4, error: { code: -1 } }],
+  ])("%s は 202 で本文が無い", async (_label, message) => {
+    const { response, settle } = await mcpCall(message);
+    await settle();
+
+    expect(response.status).toBe(202);
+    expect(await response.text()).toBe("");
+  });
+
+  /** `notifications/` 以外の名前でも、`id` が無ければ通知（仕様）。 */
+  it("id の無いメソッド呼び出しは 202", async () => {
+    const { response, settle } = await mcpCall({
+      jsonrpc: "2.0",
+      method: "ping",
+    });
+    await settle();
+
+    expect(response.status).toBe(202);
+  });
+
+  /*
+    **`jsonrpc` は `"2.0"` ちょうど**（JSON-RPC 2.0）。
+    見ずに通すと 1.0 の本文（`id` ＋ `method` だけ）を 2.0 の要求として処理する。
+  */
+  it.each([
+    ["1.0 を名乗る", { jsonrpc: "1.0", id: 1, method: "ping" }],
+    ["名乗らない", { id: 1, method: "ping" }],
+  ])("%s 本文は 400 ＋ -32600", async (_label, message) => {
+    const { body, response } = await mcpJson(message);
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: { code: -32600 } });
   });
 
   it("GET /mcp は 405", async () => {

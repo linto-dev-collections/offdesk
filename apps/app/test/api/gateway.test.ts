@@ -26,7 +26,18 @@ import {
   bot token を載せて繋ぎに行く。
 */
 
-const TOKEN = "test-offdesk-token-0123456789abcdef";
+/*
+  **`/gateway/*` を開けるのは管理用の 1 本だけ**（2026-09-16 に分けた）。
+
+  `OFFDESK_TOKEN` は cloud session の環境変数に置く値で、**その環境を使う
+  誰からも見える**（cloud-environments のドキュメント）。routine は承認
+  プロンプト無しで走るので、同じ 1 本で `reset` まで開けておくと、
+  リポジトリや取得したページから入った 1 行で常駐接続を落とせることになる。
+*/
+const TOKEN = "test-offdesk-admin-token-0123456789abcdef";
+
+/** セッション側に配られる方。**ここでは通らない**ことを見る。 */
+const SESSION_TOKEN = "test-offdesk-token-0123456789abcdef";
 
 let stub: OutboundStub;
 
@@ -118,6 +129,7 @@ describe("認可（要件 F-I7）", () => {
     ["空の Bearer", "Bearer "],
     ["違う token", "Bearer wrong-token-0123456789abcdef"],
     ["Basic", "Basic dXNlcjpwYXNz"],
+    ["セッション側の OFFDESK_TOKEN", `Bearer ${SESSION_TOKEN}`],
   ])("%s なら 401", async (_label, authorization) => {
     const { status } = await call("/gateway/status", { authorization });
 
@@ -179,6 +191,7 @@ describe("status の応答（P7b の運用画面がそのまま出す）", () =>
 
     expect(JSON.stringify(body)).not.toContain(env.DISCORD_BOT_TOKEN);
     expect(JSON.stringify(body)).not.toContain(TOKEN);
+    expect(JSON.stringify(body)).not.toContain(SESSION_TOKEN);
   });
 
   it("status では繋ぎに行かない（見るだけ）", async () => {

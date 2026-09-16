@@ -24,6 +24,21 @@ packageExtensions:
     dependencies:
       undici: ^7.29.0
 
+# 推移的な依存の版を上げる（`pnpm audit --prod` が赤いまま残らないように）。
+#
+# どれも `alchemy` / `better-auth` が奥に連れてくるもので、**デプロイ済みの Worker の経路には入らない**（miniflare はローカルの実行環境、drizzle-kit は生成ツール）。
+# それでも CI と手元の攻撃面には残るので、上流が上げるのを待たずにここで固定する。
+#
+# 上流が追いついたらこの節ごと消す。`pnpm audit --prod` が緑なら要らない。
+overrides:
+  # miniflare が 7.28.0 を連れてくる（GHSA-8xcm-r25x-g524 ほか 4 件）。
+  # **8 系に上げない** —— alchemy が 7 系の `onRequestStart` を前提にしている（下の packageExtensions の why）。
+  undici: ^7.29.0
+  # miniflare の画像処理。libvips / libheif の脆弱性（GHSA-g89c-p67h-r497 ほか）。
+  sharp: ^0.35.4
+  # drizzle-kit が @esbuild-kit 経由で 0.18 系を連れてくる（GHSA-67mh-4wv8-2f99）。
+  esbuild: ^0.25.0
+
 catalog:
   # **キャレット無しで完全固定。** npm の latest は 2.0.0-beta（Effect ベースの作り直し）を指すので、素直に上げると別 API が入る（要件 §10-1）。
   alchemy: 0.94.0

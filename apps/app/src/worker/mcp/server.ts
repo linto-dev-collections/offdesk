@@ -13,6 +13,7 @@ import {
   isTerminalStatus,
   markAskDelivered,
   markQueuedTaken,
+  markRunDone,
   markRunResumed,
   markRunWaiting,
   peekQueued,
@@ -21,10 +22,13 @@ import {
   touchRunHeld,
 } from "@offdesk/db";
 import {
+  ASK_ABANDONED_EVENT_BODY,
+  ASK_ABANDONED_NEXT,
   contextLine,
   contextWindowFor,
   foldInboundLines,
   hasKnownContextWindow,
+  isAskAbandoned,
   isAskProblem,
   isHeldAlive,
   isReportProblem,
@@ -45,9 +49,14 @@ import type { WorkerEnv } from "../env.ts";
 import { discordRestConfig } from "../session/launch.ts";
 import { holdForAnswer } from "./hold.ts";
 import {
+  ASSUMED_PROTOCOL_VERSION,
   INVALID_PARAMS,
+  INVALID_REQUEST,
+  JSONRPC_VERSION,
   type JsonRpcId,
-  type JsonRpcRequest,
+  type JsonRpcMessage,
+  jsonRpcShapeOf,
+  MCP_PROTOCOL_VERSION_HEADER,
   METHOD_NOT_FOUND,
   modernProtocolVersion,
   PARSE_ERROR,
@@ -71,6 +80,9 @@ import {
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const LATEST_PROTOCOL_VERSION = PROTOCOL_VERSIONS[0];
 
+const speaks = (version: string): boolean =>
+  (PROTOCOL_VERSIONS as readonly string[]).includes(version);
+
 /** modern だけが持つ RPC。**来た時点で相手が modern だと分かる。** */
 const MODERN_ONLY_METHOD = "server/discover";
 
@@ -83,7 +95,7 @@ const RUN_KEY_DESCRIPTION =
  * ツール定義を tool search に遅延ロードさせない印（Claude Code の拡張）。
  *
  * `.mcp.json` の `alwaysLoad: true` と同じ働きだが、こちらはサーバー側が持つ。
- * 効かせたいのは `ask_human` が「一覧に無い」状態を作らせないこと —— それは「offdesk に繋がっていない」と症状が同じ（無音）で、OPERATIONS §10 が切り分けの表を 1 行使って書いている取り違えそのもの。
+ * 効かせたいのは `ask_human` が「一覧に無い」状態を作らせないこと —— それは「offdesk に繋がっていない」と症状が同じ（無音）で、OPERATIONS §11 が切り分けの表を 1 行使って書いている取り違えそのもの。
  *
  * クライアント側の設定に任せない。
  * リポジトリの `.mcp.json` 経由で繋ぐ経路（接頭辞が `mcp__offdesk__` になる方）が残っている限り、`alwaysLoad` を書き忘れた設定が 1 つあれば同じ無音に落ちる。
@@ -216,9 +228,9 @@ export const handleMcp = async (
     });
   }
 
-  let body: JsonRpcRequest;
+  let body: JsonRpcMessage;
   try {
-    body = (await request.json()) as JsonRpcRequest;
+    body = (await request.json()) as JsonRpcMessage;
   } catch {
     return rpcError(null, PARSE_ERROR, "JSON として読めません");
   }
@@ -227,33 +239,83 @@ export const handleMcp = async (
   const method = body.method ?? "";
 
   /*
+    **`jsonrpc` を見る**（2026-09-16）。JSON-RPC 2.0 は `"2.0"` ちょうどを要求する。
+    見ずに通していたのは寛容さではなく**版の取り違えを黙って飲む**形で、
+    1.0 の本文（`id` ＋ `method` だけ）を 2.0 の要求として処理していた。
+  */
+  if (body.jsonrpc !== JSONRPC_VERSION) {
+    return rpcError(
+      id,
+      INVALID_REQUEST,
+      `jsonrpc は "${JSONRPC_VERSION}" である必要があります`,
+      { status: 400 },
+    );
+  }
+
+  /*
+    **`MCP-Protocol-Version` を検査する**（2026-09-16）。
+
+    `2025-06-18` 以降のクライアントは初期化のあと**すべての要求に**この
+    ヘッダを載せ、仕様は「知らない値・対応していない値なら `400` を返す」を
+    MUST と定めている。**無いのは正常**（`2025-03-26` とみなす後方互換規定）。
+
+    握手で版を決めたあとにヘッダだけ別の版に変わる、という食い違いをここで止める。
+    https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+  */
+  const header = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)?.trim() ?? "";
+  const headerVersion = header === "" ? ASSUMED_PROTOCOL_VERSION : header;
+  if (!speaks(headerVersion)) {
+    console.warn("[mcp] 話せない版のヘッダを拒否しました", {
+      version: headerVersion,
+    });
+    return unsupportedProtocolVersion(id, headerVersion);
+  }
+
+  /*
     modern で来ていたら、話せる版を並べて断る（`unsupportedProtocolVersion`）。
 
     判定の根拠は 2 つだけ —— 要求が `_meta` で版を名乗っている（modern は必ず載せる）か、modern にしか無い `server/discover` を呼んでいるか。
-    **`MCP-Protocol-Version` ヘッダは根拠にしない**（`modernProtocolVersion` の why）。
+    **ヘッダ単独では modern と判定しない**（`modernProtocolVersion` の why）——
+    ヘッダは上の検査で「話せる版か」だけを見ており、話せる版を名乗る legacy の
+    クライアントはここを素通りする。
   */
   const declared = modernProtocolVersion(body.params);
   if (
-    (declared !== null &&
-      !(PROTOCOL_VERSIONS as readonly string[]).includes(declared)) ||
+    (declared !== null && !speaks(declared)) ||
     method === MODERN_ONLY_METHOD
   ) {
     return unsupportedProtocolVersion(id, declared);
   }
 
-  if (
-    (body.id === undefined || body.id === null) &&
-    method.startsWith("notifications/")
-  ) {
+  /*
+    **要求・通知・応答を見分ける**（2026-09-16）。仕様は通知と応答に
+    `202 Accepted` を**本文なしで**返すことを MUST と定めている。
+
+    以前は `notifications/` で始まる名前だけを 202 にしていたので、
+    **こちらの progress 通知に対するクライアントの応答**（`method` を持たない）が
+    `-32601`（未対応のメソッド）で返っていた —— 相手から見れば
+    「自分の送った応答にサーバーが応答した」という、終わりの無い形。
+  */
+  const shape = jsonRpcShapeOf(body);
+  if (shape === "notification" || shape === "response") {
     return new Response(null, { status: 202 });
+  }
+  if (shape === "invalid") {
+    return rpcError(
+      id,
+      INVALID_REQUEST,
+      "要求・通知・応答のどれでもありません",
+      {
+        status: 400,
+      },
+    );
   }
 
   switch (method) {
     case "initialize": {
       const requested = body.params?.protocolVersion;
       const version =
-        typeof requested === "string" &&
-        (PROTOCOL_VERSIONS as readonly string[]).includes(requested)
+        typeof requested === "string" && speaks(requested)
           ? requested
           : LATEST_PROTOCOL_VERSION;
 
@@ -426,6 +488,28 @@ const contextTailOf = (run: RunRecord): string | null =>
     windowKnown: hasKnownContextWindow(run.ctxModel),
   });
 
+/**
+ * 依頼者が答えないまま上限に達した run を畳む（`ASK_ABANDON_MS`）。
+ *
+ * **`done` で畳む**（`error` ではない）。沈黙の掃除（`sweepSilentRuns`）と
+ * 同じ理由 —— 異常なのは「誰も答えなかった」ことだけで、それは本文が言う。
+ * 画面で赤い札を出すと、PR まで出して待っていた run の時系列に嘘が並ぶ。
+ *
+ * **無言で捨てない**（要件 `N-7`）。`events` の 1 行が run 詳細に並ぶ。
+ */
+const abandonAsk = async (db: Db, runKey: string): Promise<void> => {
+  console.warn("[mcp] 回答が来ないまま上限に達したので run を畳みました", {
+    runKey,
+  });
+  if (!(await markRunDone(db, runKey, Date.now()))) return;
+
+  await insertEvent(
+    db,
+    { runKey, kind: "done", body: ASK_ABANDONED_EVENT_BODY },
+    Date.now(),
+  );
+};
+
 const askHuman = async (
   id: JsonRpcId,
   args: Record<string, unknown>,
@@ -434,6 +518,7 @@ const askHuman = async (
   ctx: Waitable,
 ): Promise<Response> => {
   const db = createDb(env.DB);
+  const config = resolveHoldConfig(env);
   const runKey = typeof args.run_key === "string" ? args.run_key : "";
 
   const gate = await gateRun(db, id, runKey);
@@ -441,6 +526,25 @@ const askHuman = async (
   const run = gate.run;
 
   const stranded = await findLatestUndeliveredAsk(db, runKey);
+
+  /*
+    **上限を過ぎた問いは握り直さない**（`ASK_ABANDON_MS`）。
+
+    握ってから 1 周目で気付く形にもできるが、それだと SSE を開いてから
+    閉じることになる。**開く前に分かっているものは開かない。**
+  */
+  if (
+    stranded !== null &&
+    stranded.answer === null &&
+    isAskAbandoned(stranded.createdAt, Date.now(), config.abandonMs)
+  ) {
+    await abandonAsk(db, runKey);
+    return toolStatusResult(
+      id,
+      { status: "closed", ask_id: stranded.askId, next: ASK_ABANDONED_NEXT },
+      true,
+    );
+  }
 
   if (stranded !== null && stranded.answer !== null) {
     // 切れている間に人が答えていた。**質問は出し直さない。**
@@ -501,8 +605,10 @@ const askHuman = async (
       db,
       askId: stranded.askId,
       runKey,
-      config: resolveHoldConfig(env),
+      config,
       progressToken,
+      abandonAt: stranded.createdAt + config.abandonMs,
+      onAbandoned: () => abandonAsk(db, runKey),
       waitUntil: (promise) => ctx.waitUntil(promise),
       onDelivered: (ask) => flipAnswerMark(env, run, ask),
     });
@@ -527,8 +633,9 @@ const askHuman = async (
     crypto.getRandomValues(new Uint8Array(byteLength)),
   );
 
-  await touchRunHeld(db, runKey, Date.now());
-  await insertAsk(db, { askId, runKey, ...validated }, Date.now());
+  const openedAt = Date.now();
+  await touchRunHeld(db, runKey, openedAt);
+  await insertAsk(db, { askId, runKey, ...validated }, openedAt);
 
   const rest = discordRestConfig(env);
   const target = askTarget(run);
@@ -538,8 +645,10 @@ const askHuman = async (
     db,
     askId,
     runKey,
-    config: resolveHoldConfig(env),
+    config,
     progressToken,
+    abandonAt: openedAt + config.abandonMs,
+    onAbandoned: () => abandonAsk(db, runKey),
     waitUntil: (promise) => ctx.waitUntil(promise),
     onDelivered: (answered) => flipAnswerMark(env, run, answered),
     onOpen: async () => {
@@ -565,6 +674,7 @@ const askWait = async (
   ctx: Waitable,
 ): Promise<Response> => {
   const db = createDb(env.DB);
+  const config = resolveHoldConfig(env);
   const askId = typeof args.ask_id === "string" ? args.ask_id : "";
 
   const ask = await findAsk(db, askId);
@@ -591,14 +701,26 @@ const askWait = async (
     return await deliverAnswer(env, db, id, gate.run, ask);
   }
 
+  /** 握り直す前に上限を見る（`askHuman` と同じ理由 —— 開く前に分かっている）。 */
+  if (isAskAbandoned(ask.createdAt, Date.now(), config.abandonMs)) {
+    await abandonAsk(db, ask.runKey);
+    return toolStatusResult(
+      id,
+      { status: "closed", ask_id: ask.askId, next: ASK_ABANDONED_NEXT },
+      true,
+    );
+  }
+
   await touchRunHeld(db, ask.runKey, Date.now());
   return holdForAnswer({
     id,
     db,
     askId: ask.askId,
     runKey: ask.runKey,
-    config: resolveHoldConfig(env),
+    config,
     progressToken,
+    abandonAt: ask.createdAt + config.abandonMs,
+    onAbandoned: () => abandonAsk(db, ask.runKey),
     waitUntil: (promise) => ctx.waitUntil(promise),
     onDelivered: (answered) => flipAnswerMark(env, gate.run, answered),
   });

@@ -99,7 +99,7 @@ describe("ask_human の問い", () => {
   it("末尾に残量の 1 行が付く", async () => {
     await seedRun({ projectId, runKey: RUN });
     await env.DB.prepare(
-      `UPDATE runs SET ctx_used_tokens = ?, ctx_at = ?, ctx_model = ?
+      `UPDATE runs SET ctx_used_tokens = ?, ctx_output_tokens = 0, ctx_at = ?, ctx_model = ?
        WHERE run_key = ?`,
     )
       .bind(USED_TOKENS, Date.now(), "claude-sonnet-5", RUN)
@@ -134,7 +134,7 @@ describe("ask_human の問い", () => {
   it("モデルが無ければ % を出さず、分子だけを出す", async () => {
     await seedRun({ projectId, runKey: RUN });
     await env.DB.prepare(
-      "UPDATE runs SET ctx_used_tokens = ?, ctx_at = ? WHERE run_key = ?",
+      "UPDATE runs SET ctx_used_tokens = ?, ctx_output_tokens = 0, ctx_at = ? WHERE run_key = ?",
     )
       .bind(USED_TOKENS, Date.now(), RUN)
       .run();
@@ -164,7 +164,7 @@ describe("report", () => {
   beforeEach(async () => {
     await seedRun({ projectId, runKey: RUN });
     await env.DB.prepare(
-      `UPDATE runs SET ctx_used_tokens = ?, ctx_at = ?, ctx_model = ?
+      `UPDATE runs SET ctx_used_tokens = ?, ctx_output_tokens = 0, ctx_at = ?, ctx_model = ?
        WHERE run_key = ?`,
     )
       .bind(USED_TOKENS, Date.now(), "claude-sonnet-5", RUN)

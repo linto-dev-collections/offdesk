@@ -176,9 +176,20 @@ describe("runs の CHECK", () => {
     ["queued なのに finished_at がある", { finished_at: 1 }],
     ["running に failure_reason", { failure_reason: "だめ" }],
     ["ctx の片方だけ", { ctx_used_tokens: 100 }],
-    ["ctx が負", { ctx_at: 1, ctx_used_tokens: -1 }],
+    ["ctx が負", { ctx_at: 1, ctx_used_tokens: -1, ctx_output_tokens: 0 }],
     ["ctx_output_tokens が負", { ctx_output_tokens: -1 }],
     ["ctx_model が空文字", { ctx_model: "" }],
+    /*
+      **`ctx_output_tokens` だけ**（2026-09-16 に塞いだ）。`runs_ctx_pair_ck` は
+      `ctx_at` と `ctx_used_tokens` しか結んでいないので、ここは
+      トリガ（`0009_runs_ctx_output_pair`）が止める —— SQLite は表単位の CHECK を
+      後から足せず、`runs` の作り直しは 4 つの子表が参照していてできない。
+    */
+    ["ctx_output_tokens だけ", { ctx_output_tokens: 10 }],
+    [
+      "ctx_at はあるのに ctx_output_tokens が無い",
+      { ctx_at: 1, ctx_used_tokens: 100 },
+    ],
   ])("%s は入らない", async (_label, values) => {
     await insertProject({});
     await expect(insertRun(values)).rejects.toThrow();
@@ -190,12 +201,23 @@ describe("runs の CHECK", () => {
     `.message.usage` があって `.message.model` が無い転写ログの行のため（P5）。
   */
   it.each([
-    ["ctx が対で入る", { ctx_at: 1, ctx_used_tokens: 0 }],
+    [
+      "ctx が 3 つ揃って入る",
+      { ctx_at: 1, ctx_used_tokens: 0, ctx_output_tokens: 0 },
+    ],
     [
       "ctx_model つき",
-      { ctx_at: 1, ctx_used_tokens: 100, ctx_model: "claude-opus-5" },
+      {
+        ctx_at: 1,
+        ctx_used_tokens: 100,
+        ctx_output_tokens: 20,
+        ctx_model: "claude-opus-5",
+      },
     ],
-    ["ctx_model だけ NULL", { ctx_at: 1, ctx_used_tokens: 100 }],
+    [
+      "ctx_model だけ NULL",
+      { ctx_at: 1, ctx_used_tokens: 100, ctx_output_tokens: 20 },
+    ],
     ["ctx_model だけあって分子が無い", { ctx_model: "claude-opus-5" }],
   ])("%s は入る", async (_label, values) => {
     await insertProject({});

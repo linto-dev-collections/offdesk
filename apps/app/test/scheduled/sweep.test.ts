@@ -83,6 +83,31 @@ describe("10 分を過ぎた queued を畳む", () => {
   });
 
   /*
+    **hook の印が立っている run は畳まない**（2026-09-16）。
+
+    `activity_at` は道具を呼ぶたびに hook が書く印なので、**立っている ＝
+    セッションは動いている。** これが要るようになったのは、`fire` の POST が
+    「届いたか分からない」形で落ちた run を `queued` のまま残すようにしたため
+    （`FireOutcome` の `certain`）—— 起動していた場合、`ask_human` を呼ぶ前に
+    10 分が過ぎると、動いているセッションを畳んでしまう。
+  */
+  it("activity_at が立っていれば 11 分でも畳まない", async () => {
+    const runKey = await seedRun({
+      runKey: runKeyOf(9),
+      projectId: alpha,
+      status: "queued",
+      createdAt: Date.now() - 11 * MINUTE,
+      activityAt: Date.now() - MINUTE,
+    });
+
+    await runCron();
+
+    const row = await runRow(runKey);
+    expect(row?.status).toBe("queued");
+    expect(row?.failure_reason).toBeNull();
+  });
+
+  /*
     **起こし直さない**（計画 P8 §3-2 の 3）。実は起動できていた場合に
     2 本目が立つ —— 畳むだけにしておけば、次の 1 行が `restart` として拾う。
   */

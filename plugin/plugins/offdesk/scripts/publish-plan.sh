@@ -58,6 +58,27 @@ case "${root_real}/" in
   *) die "plans must live under ${plan_work_dir} (got ${target})" ;;
 esac
 
+# Checking the directory is not enough: `[ -f "$target" ]` follows symlinks, so a
+# single-file argument that is itself a link passes the check above while curl
+# reads whatever the link points at. Every file that is about to be sent is
+# checked on its own -- reject the link itself, then resolve its parent with
+# `cd -P` so a linked component anywhere in the path lands outside work_real and
+# fails the prefix test.
+assert_inside_work_dir() {
+  local path="$1" dir_real
+
+  [ -L "$path" ] && die "symlinks are not published: $path"
+  [ -f "$path" ] || die "not a regular file: $path"
+
+  dir_real="$(cd "$(dirname "$path")" 2>/dev/null && pwd -P || true)"
+  [ -n "$dir_real" ] || die "cannot resolve: $path"
+
+  case "${dir_real}/" in
+    "${work_real}/"*) ;;
+    *) die "plans must live under ${plan_work_dir} (got ${path})" ;;
+  esac
+}
+
 slug="$(printf '%s' "$name" \
   | tr '[:upper:]' '[:lower:]' \
   | sed 's/[^a-z0-9_-]/-/g; s/^[^a-z0-9]*//; s/-*$//' \
@@ -68,11 +89,21 @@ files=()
 if [ -n "$single" ]; then
   files=("$single")
 else
+  # **Collect symlinks too**, so `assert_inside_work_dir` can refuse them out
+  # loud. Listing only `-type f` drops them without a word, and the session then
+  # hands over a URL believing the whole plan is behind it.
   while IFS= read -r -d '' path; do
     files+=("${path#"$root"/}")
-  done < <(find "$root" -type f -not -path '*/.*' -not -path '*/node_modules/*' -print0 | sort -z)
+  done < <(find "$root" \( -type f -o -type l \) \
+    -not -path '*/.*' -not -path '*/node_modules/*' -print0 | sort -z)
 fi
 [ "${#files[@]}" -gt 0 ] || die "nothing to upload: $target"
+
+# **Check every file before sending any of them.** Uploading half a plan and
+# then dying leaves the published copy in a state nobody asked for.
+for rel in "${files[@]}"; do
+  assert_inside_work_dir "$root/$rel"
+done
 
 for rel in "${files[@]}"; do
   size="$(wc -c <"$root/$rel" | tr -d ' ')"

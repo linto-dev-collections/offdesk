@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASK_ABANDON_MS,
   ASK_HOLD_MS,
   ASK_POLL_MS,
   ASK_PROGRESS_MS,
@@ -8,6 +9,7 @@ import {
   CLIENT_IDLE_ABORT_MS,
   HELD_ALIVE_MS,
   holdLimitMs,
+  isAskAbandoned,
   isHeldAlive,
   OBSERVED_EDGE_CUTOFF_MS,
   RECOMMENDED_CLIENT_IDLE_TIMEOUT_MS,
@@ -75,6 +77,7 @@ describe("resolveHoldConfig", () => {
       progressMs: ASK_PROGRESS_MS,
       silentHoldMs: ASK_SILENT_HOLD_MS,
       touchMs: ASK_TOUCH_MS,
+      abandonMs: ASK_ABANDON_MS,
     });
   });
 
@@ -85,6 +88,7 @@ describe("resolveHoldConfig", () => {
       ASK_PROGRESS_MS: "10",
       ASK_SILENT_HOLD_MS: "40",
       ASK_TOUCH_MS: "10",
+      ASK_ABANDON_MS: "200",
     });
 
     expect(config).toEqual({
@@ -93,6 +97,7 @@ describe("resolveHoldConfig", () => {
       progressMs: 10,
       silentHoldMs: 40,
       touchMs: 10,
+      abandonMs: 200,
     });
   });
 
@@ -142,5 +147,35 @@ describe("isHeldAlive", () => {
   it("既定の窓を使う", () => {
     expect(isHeldAlive(1_000, 1_000 + HELD_ALIVE_MS - 1)).toBe(true);
     expect(isHeldAlive(1_000, 1_000 + HELD_ALIVE_MS)).toBe(false);
+  });
+});
+
+/*
+  **1 つの問いを待ち続ける総時間の上限**（`ASK_HOLD_MS` とは別の時計）。
+
+  上限が無いと、依頼者が答えないまま `ask_wait` が 15 分ごとに回り続け、
+  セッションが無期限に生き残る —— 沈黙の掃除にも掛からない
+  （あれが見る `held_at` は握りが 15 秒ごとに書き直している）。
+*/
+describe("isAskAbandoned", () => {
+  const created = 1_000_000;
+
+  it.each([
+    ["ちょうど上限", ASK_ABANDON_MS, true],
+    ["上限の 1 ミリ秒前", ASK_ABANDON_MS - 1, false],
+    ["上限を超えて", ASK_ABANDON_MS + 1, true],
+    ["出した直後", 0, false],
+  ])("%s → %s", (_label, elapsed, expected) => {
+    expect(isAskAbandoned(created, created + elapsed)).toBe(expected);
+  });
+
+  it("上限は設定で縮められる（要件 N-9）", () => {
+    expect(isAskAbandoned(created, created + 100, 50)).toBe(true);
+    expect(isAskAbandoned(created, created + 10, 50)).toBe(false);
+  });
+
+  /** **1 回の握りより十分長いこと。** 逆転すると待ちが 1 周も回らない。 */
+  it("1 回の握りの上限より長い", () => {
+    expect(ASK_ABANDON_MS).toBeGreaterThan(ASK_HOLD_MS);
   });
 });

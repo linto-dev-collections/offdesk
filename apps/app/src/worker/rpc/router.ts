@@ -16,9 +16,8 @@ import {
   listProjectsWithMask,
   listRuns,
   listRunsByStatus,
-  replaceFireCredential,
   setProjectDisabled,
-  updateProjectKeepingCredential,
+  updateProjectRow,
   upsertProjectWithCredential,
 } from "@offdesk/db";
 import { ROUTINE_PROMPT } from "@offdesk/domain";
@@ -89,11 +88,7 @@ const writeProjectDeps = (env: WorkerEnv): WriteProjectDeps => {
       findWithMask: (id) => findProjectWithMaskById(db, id),
       upsert: (input, encrypted) =>
         upsertProjectWithCredential(db, input, encrypted),
-      update: (input) => updateProjectKeepingCredential(db, input),
-      replaceCredential: async (projectId, encrypted) => {
-        await replaceFireCredential(db, projectId, encrypted);
-        return true;
-      },
+      update: (input, encrypted) => updateProjectRow(db, input, encrypted),
       setDisabled: (id, disabled) =>
         setProjectDisabled(db, id, disabled, Date.now()),
     },

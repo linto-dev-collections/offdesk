@@ -13,6 +13,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate plugin and marketplace
+        run: |
+          npx -y @anthropic-ai/claude-code plugin validate ./plugin/plugins/offdesk --strict
+          npx -y @anthropic-ai/claude-code plugin validate . --strict
+
   ci-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -50,10 +68,8 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Validate plugins and marketplace
-        run: |
-          npx -y @anthropic-ai/claude-code plugin validate ./plugin/plugins/offdesk --strict
-          npx -y @anthropic-ai/claude-code plugin validate . --strict
+      - name: Audit (production dependencies)
+        run: pnpm audit --prod --audit-level moderate
 
       - name: Build
         run: pnpm build
@@ -84,5 +100,6 @@ jobs:
           DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
           OWNER_DISCORD_USER_ID: ${{ vars.OWNER_DISCORD_USER_ID }}
           OFFDESK_TOKEN: ${{ secrets.OFFDESK_TOKEN }}
+          OFFDESK_ADMIN_TOKEN: ${{ secrets.OFFDESK_ADMIN_TOKEN }}
           FIRE_TOKEN_KEY: ${{ secrets.FIRE_TOKEN_KEY }}
           PLAN_LINK_SIGNING_KEY: ${{ secrets.PLAN_LINK_SIGNING_KEY }}

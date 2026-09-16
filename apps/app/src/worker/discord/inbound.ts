@@ -317,7 +317,8 @@ const applyRestart = async (
     {
       projectId: project.id,
       fireUrl: project.fireUrl,
-      text: buildFireText(nextRunKey, prompt, target),
+      // 起こし直しでも**期待するリポジトリを載せる**（`repoSection` の why）。
+      text: buildFireText(nextRunKey, prompt, target, project.repoUrl),
     },
   );
 
@@ -325,13 +326,24 @@ const applyRestart = async (
     /*
       **印を立てない。** 溜めた文はそのまま `inbox` に残るので、
       次の 1 行が来たときに一緒に拾い直せる（要件 `I-3`）。
+
+      **言い切れるときだけ畳む**（`FireOutcome` の `certain`）。届いたか
+      分からない失敗で `failed` を書くと、実は走っているセッションが最初の
+      `ask_human` で `closed` を受け取って止まる —— `queued` のまま残せば、
+      動いていれば先へ進み、動いていなければ 10 分後に cron が畳む。
     */
-    await markRunFailed(db, nextRunKey, fired.reason, Date.now());
+    if (fired.certain) {
+      await markRunFailed(db, nextRunKey, fired.reason, Date.now());
+    }
+
     await postMessage(
       rest,
       thread,
       noticeMessage(
-        `起こし直せませんでした（${nextRunKey}）: ${fired.reason}\n書いた内容は預かったままなので、直したらもう一度書いてください。`,
+        fired.certain
+          ? `起こし直せませんでした（${nextRunKey}）: ${fired.reason}\n書いた内容は預かったままなので、直したらもう一度書いてください。`
+          : `起こし直せたか確認できませんでした（${nextRunKey}）: ${fired.reason}\n` +
+              "**セッションが動いている可能性があるので、すぐに書き直さないでください。** 書いた内容は預かったままです。",
       ),
     );
     return { decision: "restart", runKey: nextRunKey };

@@ -54,6 +54,9 @@ export {
   fireTokenVerdictOf,
   hostOf,
   isFireUrlAllowed,
+  ROUTINE_PATH,
+  routineIdOf,
+  sameRoutine,
 } from "./fire.ts";
 export type {
   GatewayEffect,
@@ -67,6 +70,7 @@ export type {
 export {
   backoffDelayMs,
   closeReason,
+  firstHeartbeatDelayMs,
   GATEWAY_CLOSE_RESTART,
   GATEWAY_INTENTS,
   GATEWAY_OP,
@@ -82,6 +86,9 @@ export {
 export type { Health } from "./health.ts";
 export type { HoldConfig, HoldOverrides } from "./hold.ts";
 export {
+  ASK_ABANDON_MS,
+  ASK_ABANDONED_EVENT_BODY,
+  ASK_ABANDONED_NEXT,
   ASK_HOLD_MS,
   ASK_POLL_MS,
   ASK_PROGRESS_MS,
@@ -90,6 +97,7 @@ export {
   CLIENT_IDLE_ABORT_MS,
   HELD_ALIVE_MS,
   holdLimitMs,
+  isAskAbandoned,
   isHeldAlive,
   OBSERVED_EDGE_CUTOFF_MS,
   RECOMMENDED_CLIENT_IDLE_TIMEOUT_MS,
@@ -134,6 +142,8 @@ export {
   buildFireText,
   isResendQuestion,
   MAX_FIRE_TEXT_LENGTH,
+  MCP_INSTRUCTIONS_BUDGET,
+  MCP_TEXT_LIMIT,
   OFFDESK_TOOL_MATCHER,
   OFFDESK_TOOLS,
   PLAN_WORK_DIR,
