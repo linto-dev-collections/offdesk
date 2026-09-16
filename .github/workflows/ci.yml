@@ -50,6 +50,11 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Validate plugins and marketplace
+        run: |
+          npx -y @anthropic-ai/claude-code plugin validate ./plugin/plugins/offdesk --strict
+          npx -y @anthropic-ai/claude-code plugin validate . --strict
+
       - name: Build
         run: pnpm build
 

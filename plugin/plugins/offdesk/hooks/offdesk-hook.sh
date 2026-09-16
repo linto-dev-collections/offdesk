@@ -26,8 +26,14 @@ run_key="$(grep -m1 -ohE 'OFFDESK-[0-9a-f]{16}' "$transcript" 2>/dev/null | head
 # call -- and a transcript grows to megabytes over a long session, so reversing
 # all of it puts that cost on every tool call. The only line wanted is the most
 # recent assistant record carrying usage, which is always near the end.
-# SessionEnd's 1.5 second shared budget (raised by the timeout in hooks.json) is
-# a second reason to keep this cheap.
+#
+# SessionEnd is a second reason to keep this cheap, and a harder one than it
+# looks: those hooks share a 1.5 second budget, and **a `timeout` on a
+# plugin-provided hook does not raise it** -- only a `timeout` in a settings
+# file does, which this plugin has no way to write. The budget is raised from
+# the cloud environment with CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS
+# (offdesk's OPERATIONS.md, section 3). Without it the run is never folded and
+# nothing says so: the hook is cancelled and its output discarded.
 TAIL_LINES=400
 
 rev_lines() {

@@ -104,6 +104,7 @@ wrangler d1 execute offdesk-db-prod --remote --profile <profile> --command \
 | 環境変数 | `OFFDESK_TOKEN` = Worker の secret と同じ値 | 全部 401 |
 | 環境変数 | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0` | 質問の直後に Claude が勝手に先へ進む |
 | 環境変数 | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=3600000` | **5 分ちょうどで握りが落ちる** |
+| 環境変数 | `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=10000` | **run が畳まれず 🏁 も出ない**（無音で落ちる）。§3-5 |
 | 環境変数 | `CLAUDE_CODE_EFFORT_LEVEL=xhigh` | **止まらない**（モデルの既定 `high` で走るだけ）。この表で唯一「無くても壊れない」行 |
 
 Custom のネットワークにするときは「**Also include default list of common package managers**」にチェックを入れる（外すと `raw.githubusercontent.com` が塞がり、
@@ -155,6 +156,22 @@ setup script は**毎回は走らない**（環境がキャッシュされ、2 �
 | bot の招待権限 | View Channels / Send Messages / **Create Public Threads** / Send Messages in Threads / Embed Links / Add Reactions / Read Message History |
 
 **切り分けは「存在しない `run_key` で `ask_human` を 1 回呼ばせる」が速い**（Discord に触れずに、許可ドメイン・環境変数・MCP 認証・ツール発見・承認を一度に見る）。
+
+### 3-5. `SessionEnd` の予算はプラグインからは上げられない
+
+`SessionEnd` の hook は**全部で 1.5 秒**を分け合う。offdesk の hook はその中で転写ログから `run_key` を拾い、Worker へ `POST /hooks/session-end` を投げる —— 間に合わないと **run が `done` に畳まれず、🏁 も出ない。**
+
+**`hooks/hooks.json` の `timeout` ではこの予算は上がらない。** 予算を上げられるのは settings ファイル側の `timeout` だけで、**プラグインが書いた `timeout` は数に入らない**（プラグインは settings を書けないので、この経路は塞がっている）。
+
+だから**環境変数で上げる**（§3 の表）:
+
+```txt
+CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=10000
+```
+
+この値は予算であると同時に、**自前の `timeout` を持たない hook のタイムアウトにもなる。**
+
+**外しても静かに動き続ける。** 落ちた hook は出力ごと捨てられるので、症状は「run が `running` のまま残る」だけ —— 信号が 2 時間途絶えれば 5 分 cron が畳むので、**気づく手掛かりは「🏁 が出ないことがある」しかない。**
 
 ---
 
@@ -248,6 +265,7 @@ wrangler d1 execute offdesk-db-prod --remote --command \
 | 質問の直後に先へ進む | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`（§3） |
 | セッションで `/effort` が効かない | 環境変数 `CLAUDE_CODE_EFFORT_LEVEL` が最優先だから（§3-2）。変えるなら環境の側 |
 | `queued` のまま止まっている | 10 分で cron が畳む。書き直せば新しい run が立つ |
+| 🏁 が出ない・run が `running` のまま残る | `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`（§3-5）。**`hooks.json` の `timeout` では予算は上がらない** |
 | 計画の URL が 401 | `PLAN_LINK_SIGNING_KEY`（§1） |
 | 計画を置けない（`plans must live under …`） | **`publish-plan.sh` は `/tmp/offdesk-plans` の下しか受けない**（要件 `F-E10`）。Claude が別の場所に書いている |
 | デプロイしたのに直らない | 握りが前の版のまま（§5） |

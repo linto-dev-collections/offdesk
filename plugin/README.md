@@ -25,7 +25,9 @@ exit 0
 - **Keep the `HOME` loop.** The script runs as root, whose `$HOME` differs from the session's, and Claude Code only reads `~/.claude/plugins/`.
 - **The setup script does not run every session.** The environment is cached, so a change here reaches sessions only after the cache is rebuilt — bump `rev`.
 
-The environment also needs `OFFDESK_URL`, `OFFDESK_TOKEN`, the allowed domains, and two `CLAUDE_CODE_MCP_*` variables. See offdesk's `OPERATIONS.md` §3.
+The environment also needs `OFFDESK_URL`, `OFFDESK_TOKEN`, the allowed domains, two `CLAUDE_CODE_MCP_*` variables, and `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`. See offdesk's `OPERATIONS.md` §3.
+
+**`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` is not optional, and it cannot move into this plugin.** `SessionEnd` hooks share a 1.5 second budget. A `timeout` in a settings file raises that budget; **a `timeout` on a plugin-provided hook does not**, and a plugin cannot write a settings file. Without the variable, the hook that folds the run and posts the 🏁 is cancelled and its output discarded — silently. The `timeout` this plugin's `hooks.json` sets is still the cap for that one hook once the budget is raised, so it stays.
 
 ## Contents
 
@@ -45,3 +47,5 @@ mcp__plugin_offdesk_offdesk__ask_human   via a plugin (this one)
 ```
 
 A plugin's MCP server is namespaced as `plugin_<plugin>_<server>`, and renaming the server does not remove the prefix. **The approval hook's matcher accepts both** (`mcp__(plugin_offdesk_)?offdesk__.*`). Matching only one makes a routine stall silently when the route changes: nobody approves the call, `ask_human` never returns, and Discord stays quiet with no error.
+
+The same split is why `alwaysLoad` is stated twice. `.mcp.json` sets it on the server, which covers the plugin route; the **server itself** marks `ask_human` with `_meta: {"anthropic/alwaysLoad": true}`, which covers every route including a repository's own `.mcp.json`. A lazy-loaded `ask_human` and a session with no offdesk tools at all produce the same symptom — silence — so the guarantee does not belong only in client configuration.

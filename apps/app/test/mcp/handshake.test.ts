@@ -211,6 +211,38 @@ describe("tools/list", () => {
     expect(askHuman?.inputSchema.required).toEqual(["run_key", "question"]);
   });
 
+  /*
+    **`ask_human` だけが常時ロードを名乗る**（`_meta` の `anthropic/alwaysLoad`）。
+
+    遅延ロードされた `ask_human` は「ツールが 1 本も無い」と**症状が同じ（無音）**で、
+    OPERATIONS §10 が切り分けの表を 1 行使って書いている取り違えそのもの。
+    `.mcp.json` の `alwaysLoad` はクライアント側の設定なので、
+    書き忘れた経路が 1 つあれば同じ穴が開く —— サーバー側からも言う。
+
+    **残り 2 本には付けない。** 常時ロードは文脈を食うので、「無いと詰む」1 本だけ。
+  */
+  it("ask_human だけが _meta で常時ロードを名乗る", async () => {
+    const { body } = await mcpJson({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const tools = (
+      body.result as {
+        tools: readonly {
+          name: string;
+          _meta?: Record<string, unknown>;
+        }[];
+      }
+    ).tools;
+
+    expect(
+      tools
+        .filter((tool) => tool._meta?.["anthropic/alwaysLoad"] === true)
+        .map((tool) => tool.name),
+    ).toEqual(["ask_human"]);
+  });
+
   it("説明文に session_key と書かない", async () => {
     const { body } = await mcpJson({
       jsonrpc: "2.0",

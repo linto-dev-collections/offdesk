@@ -38,6 +38,7 @@ describe("cloud environment の設定が OPERATIONS.md に残っている（§9-
     ["OFFDESK_TOKEN", "全部 401"],
     ["CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS", "質問の直後に先へ進む"],
     ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "5 分で握りが落ちる"],
+    ["CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS", "run が畳まれず 🏁 も出ない"],
     // ↑ ここまでは「欠けると壊れる」。**下の 1 つだけ性質が違う**（欠けても壊れない）。
     ["CLAUDE_CODE_EFFORT_LEVEL", "既定の high で走るだけ（壊れない）"],
   ])("%s が書かれている", (name) => {
@@ -56,6 +57,29 @@ describe("cloud environment の設定が OPERATIONS.md に残っている（§9-
 
   it("背後へ回す設定を 0 にすると書かれている", () => {
     expect(OPERATIONS).toContain("CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0");
+  });
+
+  /*
+    **`SessionEnd` の予算はプラグインからは上げられない。**
+
+    `hooks/hooks.json` の `timeout` で上がるのは settings ファイル側だけで、
+    **プラグインが書いた `timeout` は数に入らない** —— 予算は 1.5 秒のまま。
+    置き場が cloud environment の環境変数 1 つしか無いので、
+    **`OPERATIONS.md` が唯一の記録**になる（§3-5）。
+
+    値まで見張るのは `CLAUDE_CODE_EFFORT_LEVEL` と同じ理由（名前だけ書いて
+    ミリ秒を決め忘れると通ってしまう）。
+  */
+  it("SessionEnd の予算をミリ秒まで書いてある", () => {
+    expect(OPERATIONS).toMatch(
+      /CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=[0-9]+/,
+    );
+  });
+
+  it("プラグインの timeout では予算が上がらないと書いてある", () => {
+    expect(OPERATIONS).toMatch(
+      /CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS[\s\S]{0,600}予算は上がらない/,
+    );
   });
 
   /*

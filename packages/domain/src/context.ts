@@ -7,6 +7,21 @@ export const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 
 const CONTEXT_WINDOW_1M = 1_000_000;
 
+/*
+  routine のフォームにはモデルセレクタがあるので、ここに無いモデルを選ばれると Discord のバーが「窓が引けていません」に化ける。
+  表に足す条件は「この契約で何 token になるかが一意に決まること」（`context.test.ts` の「確信の無いモデルは表に足さない」）—— 迷うものは足さず、`%` を出さない側へ倒す。
+
+  1M の根拠は 2 つあり、**どちらか片方でも足りない**:
+
+  - **API の既定**: Fable 5/5.1・Mythos 5/5.1・Sonnet 5・Opus 4.7 以降は既定で 1M（`claude-opus-5` は 2026-09-06 に cloud session で実測）
+  - **サブスクの自動繰り上げ**: Max / Team / Enterprise では **Opus が無設定で 1M に上がる**
+
+  `claude-sonnet-4-6` を 1M で足さない。
+  あれは自動繰り上げの対象外で、1M には usage credits が要る —— 既定は 200K なので、そちらで足す（`[1m]` が付いていれば `splitModelVariant` が 1M に上書きする）。
+
+  `claude-opus-4-6` は足さない。
+  API の既定は 200K で、1M になるかはプラン次第（Opus 4.7 以降と違って「既定で 1M」の側に居ない）—— 契約が変わると静かにずれるので、表に入れずに「引けません」と言わせる。
+*/
 const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   "claude-fable-5-1": CONTEXT_WINDOW_1M,
   "claude-fable-5": CONTEXT_WINDOW_1M,
@@ -14,6 +29,9 @@ const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   "claude-mythos-5": CONTEXT_WINDOW_1M,
   "claude-sonnet-5": CONTEXT_WINDOW_1M,
   "claude-opus-5": CONTEXT_WINDOW_1M,
+  "claude-opus-4-8": CONTEXT_WINDOW_1M,
+  "claude-opus-4-7": CONTEXT_WINDOW_1M,
+  "claude-sonnet-4-6": DEFAULT_CONTEXT_WINDOW_TOKENS,
   "claude-haiku-4-5": DEFAULT_CONTEXT_WINDOW_TOKENS,
   "claude-haiku-4-5-20251001": DEFAULT_CONTEXT_WINDOW_TOKENS,
 };

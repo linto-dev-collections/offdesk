@@ -78,6 +78,8 @@ describe("分母（モデルから引く）", () => {
     ["claude-fable-5", 1_000_000],
     ["claude-mythos-5-1", 1_000_000],
     ["claude-mythos-5", 1_000_000],
+    ["claude-opus-4-8", 1_000_000],
+    ["claude-opus-4-7", 1_000_000],
   ])("%s は native の %i", (model, windowTokens) => {
     expect(contextWindowFor(model)).toBe(windowTokens);
     expect(hasKnownContextWindow(model)).toBe(true);
@@ -98,20 +100,40 @@ describe("分母（モデルから引く）", () => {
     expect(hasKnownContextWindow("claude-opus-5")).toBe(true);
   });
 
-  it.each(["claude-opus-4-8", "claude-opus-4-6", "claude-sonnet-4-6"])(
+  /*
+    **プランで変わるモデルは表に足さない。**
+
+    `claude-opus-4-6` の 1M は「Opus の自動繰り上げ」に乗っている側で、
+    **API の既定が 1M なのは Opus 4.7 以降**。契約が変われば静かにずれるので、
+    当てずっぽうの分母より「引けません」に倒す（`context.ts` の why）。
+  */
+  it.each(["claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-5"])(
     "%s は表に無いので「引けない」と言う",
     (model) => {
       expect(hasKnownContextWindow(model)).toBe(false);
     },
   );
 
-  /** **1M を持たないモデル。** */
+  /*
+    **1M を既定で持たないモデル。**
+
+    **`claude-sonnet-4-6` をここに置くのが要点。** Opus と違って自動繰り上げの
+    対象外で、1M には usage credits が要る —— 1M で足すと、繰り上がっていない
+    セッションで分母が 5 倍になって「まだ 6%」と嘘をつく。
+    繰り上がっている場合は `[1m]` が付くので、下の変種の表がそちらを拾う。
+  */
   it.each([
+    ["claude-sonnet-4-6", 200_000],
     ["claude-haiku-4-5", 200_000],
     ["claude-haiku-4-5-20251001", 200_000],
   ])("%s は %i", (model, windowTokens) => {
     expect(contextWindowFor(model)).toBe(windowTokens);
     expect(hasKnownContextWindow(model)).toBe(true);
+  });
+
+  it("claude-sonnet-4-6[1m] は変種を見て 1M に上がる", () => {
+    expect(contextWindowFor("claude-sonnet-4-6[1m]")).toBe(1_000_000);
+    expect(hasKnownContextWindow("claude-sonnet-4-6[1m]")).toBe(true);
   });
 
   /*

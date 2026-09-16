@@ -79,10 +79,26 @@ const SERVER_INFO = { name: "offdesk", version: "0.4.0" } as const;
 const RUN_KEY_DESCRIPTION =
   "指示の 1 行目にある OFFDESK- で始まる値。そのまま渡すこと";
 
+/**
+ * ツール定義を tool search に遅延ロードさせない印（Claude Code の拡張）。
+ *
+ * `.mcp.json` の `alwaysLoad: true` と同じ働きだが、こちらはサーバー側が持つ。
+ * 効かせたいのは `ask_human` が「一覧に無い」状態を作らせないこと —— それは「offdesk に繋がっていない」と症状が同じ（無音）で、OPERATIONS §10 が切り分けの表を 1 行使って書いている取り違えそのもの。
+ *
+ * クライアント側の設定に任せない。
+ * リポジトリの `.mcp.json` 経由で繋ぐ経路（接頭辞が `mcp__offdesk__` になる方）が残っている限り、`alwaysLoad` を書き忘れた設定が 1 つあれば同じ無音に落ちる。
+ * 両方あっても害は無い（同じことを 2 か所から言うだけ）。
+ *
+ * `ask_wait` と `report` には付けない。
+ * 常時ロードは文脈を食うので、「無いと詰む」1 本だけに絞る —— 残り 2 本は `ask_human` の説明と `SERVER_INSTRUCTIONS` が名指ししているので、tool search から必ず引ける。
+ */
+const ALWAYS_LOAD_META = { "anthropic/alwaysLoad": true } as const;
+
 const TOOLS = [
   {
     name: "ask_human",
     title: "依頼者に確認する",
+    _meta: ALWAYS_LOAD_META,
     description:
       "判断が要ることを依頼者に確認し、答えが返るまで待つ。選択肢はボタンとして Discord に出る。" +
       "答えが返るまでこの呼び出しは戻らない（待っている間トークンは消費しない）。" +
@@ -167,16 +183,14 @@ const forbiddenOrigin = (request: Request): boolean => {
 };
 
 /**
- * modern（`2026-07-28` 以降）の要求に、**決定的に**「その版は話せない」と返す。
+ * modern（`2026-07-28` 以降）の要求に、決定的に「その版は話せない」と返す。
  *
- * 仕様の dual-era フォールバックはこう定めている ——
- * 「modern の要求を先に投げ、**`400`** が返ったら本文を見る。**認識できる modern の
- * エラー**（この `-32022`）なら `supported` から選び直し、そうでなければ
- * `initialize` に落ちる。」
+ * 仕様の dual-era フォールバックはこう定めている —— 「modern の要求を先に投げ、`400` が返ったら本文を見る。
+ * 認識できる modern のエラー（この `-32022`）なら `supported` から選び直し、そうでなければ `initialize` に落ちる。」
  *
- * **`200` ＋ `-32601` ではこの分岐に入らない。** それが 2026-09-06 まで
- * offdesk が返していたもので、繋がっていたのはクライアント側が寛容だったからに過ぎない。
- * ここで `400` ＋ `-32022` ＋ `supported` を返せば、**相手は必ず legacy を選び直す。**
+ * `200` ＋ `-32601` ではこの分岐に入らない。
+ * それが 2026-09-06 まで offdesk が返していたもので、繋がっていたのはクライアント側が寛容だったからに過ぎない。
+ * ここで `400` ＋ `-32022` ＋ `supported` を返せば、相手は必ず legacy を選び直す。
  */
 const unsupportedProtocolVersion = (
   id: JsonRpcId,
@@ -213,10 +227,9 @@ export const handleMcp = async (
   const method = body.method ?? "";
 
   /*
-    **modern で来ていたら、話せる版を並べて断る**（`unsupportedProtocolVersion`）。
+    modern で来ていたら、話せる版を並べて断る（`unsupportedProtocolVersion`）。
 
-    判定の根拠は 2 つだけ —— 要求が `_meta` で版を名乗っている（modern は必ず
-    載せる）か、modern にしか無い `server/discover` を呼んでいるか。
+    判定の根拠は 2 つだけ —— 要求が `_meta` で版を名乗っている（modern は必ず載せる）か、modern にしか無い `server/discover` を呼んでいるか。
     **`MCP-Protocol-Version` ヘッダは根拠にしない**（`modernProtocolVersion` の why）。
   */
   const declared = modernProtocolVersion(body.params);
@@ -442,19 +455,16 @@ const askHuman = async (
   }
 
   /*
-    **同じ run で握りを重ねない**（脅威 16）。
+    同じ run で握りを重ねない（脅威 16）。
 
-    **`stranded !== null` を条件に入れるのが要点**（2026-09-05 に本番で踏んで直した）。
-    `held_at` は**立てるだけで下ろされない印**で（`touchRunHeld` しか無い）、
-    握りは 15 秒ごとに更新して終わるので、**終わった直後は最大 15 秒前の値が残る**
-    —— `HELD_ALIVE_MS`（60 秒）の窓に入ったままになり、
-    **回答を渡した直後の 2 本目が「別の握りが待っている」で断られていた。**
+    `stranded !== null` を条件に入れるのが要点（2026-09-05 に本番で踏んで直した）。
+    `held_at` は立てるだけで下ろされない印で（`touchRunHeld` しか無い）、
+    握りは 15 秒ごとに更新して終わるので、終わった直後は最大 15 秒前の値が残る —— `HELD_ALIVE_MS`（60 秒）の窓に入ったままになり、
+    回答を渡した直後の 2 本目が「別の握りが待っている」で断られていた。
 
     印だけを見て断れないのは、それが「握りが生きている」ことを意味しないから。
-    **生きた握りは必ず未配達の問いを握っている** ——
-    `holdForAnswer` の呼び出し口は 3 つ（新しい問い・拾い直し・`ask_wait`）で、
-    どれも `delivered_at` が NULL の行を渡す。`delivered_at` が立つのは
-    握り自身が答えを書き出した直後だけ。よって
+    生きた握りは必ず未配達の問いを握っている —— `holdForAnswer` の呼び出し口は 3 つ（新しい問い・拾い直し・`ask_wait`）で、どれも `delivered_at` が NULL の行を渡す。
+    `delivered_at` が立つのは握り自身が答えを書き出した直後だけ。よって
 
       印は生きている ＋ 未配達の問いが無い  ⇒  握りは無く、印が古いだけ
 
