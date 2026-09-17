@@ -139,7 +139,7 @@ Custom のネットワークにするときは「**Also include default list of 
 
 ```bash
 #!/bin/bash
-# 版: 4   ← プラグインを直したらこの数字を上げる（キャッシュが作り直される）
+# 版: 4
 set -u
 ok=0
 for home in /home/user /root; do
@@ -345,3 +345,28 @@ wrangler d1 execute offdesk-db-prod --remote --command "
 | 計画を置けない（`plans must live under …`） | **`publish-plan.sh` は `/tmp/offdesk-plans` の下しか受けない**（要件 `F-E10`）。Claude が別の場所に書いている |
 | デプロイしたのに直らない | 握りが前の版のまま（§5） |
 | API が HTML を返す | `run_worker_first` の載せ忘れ（テストが落ちるはず） |
+| バーの % が明らかに変・「窓が引けていません」が出る | モデル表が古い（§12）。**Claude Code のバンドルと突き合わせる** |
+
+---
+
+## 12. コンテキスト窓の表を更新する
+
+`packages/domain/src/context.ts` の `MODEL_CONTEXT_WINDOWS` は手書きなので、Claude Code が新しいモデルを足すたびに古くなる。
+古くなった日に出るのは Discord のバーの嘘（分母違い）で、**実行は壊れないので誰も気づかない。**
+
+**正本は Claude Code のバンドルが抱えているモデル表。** platform.claude.com の API docs **ではない** ——
+2026-09-17 時点で両者は食い違っていて、docs が「既定 1M」と書く Opus 4.6 / Sonnet 4.6 を、Claude Code は `window:200000` で回している。
+**バーの分母は「API の最大」ではなく「この run が実際に走っている窓」**なので、Claude Code の側に合わせる（`context.ts` の why）。
+
+```bash
+strings -a "$(readlink -f "$(command -v claude)")" \
+  | grep -oE 'first_party:"claude-[a-z0-9.-]+"[^§]{0,700}?context:\{[^}]*\}' \
+  | sed -E 's/^first_party:"([^"]+)".*context:\{([^}]*)\}$/\1\t\2/' \
+  | sort -u
+```
+
+読み方は 1 つだけ —— **`native_1m` が立っていれば 1M、無ければ `window` の値**（ふつう 200K）。
+`supports_1m_suffix` は `[1m]` 変種が選べるという意味で、`splitModelVariant` が拾うので表には要らない。
+
+**`claude plugin` の更新後と、Discord のバーが怪しいときに回す。** CI には入れられない（バンドルはリポジトリに無い）。
+差分があれば `context.ts` の表と `context.test.ts` の 3 つの `it.each` を揃える。

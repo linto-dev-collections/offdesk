@@ -158,6 +158,28 @@ describe("modern（2026-07-28）の要求", () => {
     expect(body).toMatchObject({ error: { code: -32022 } });
   });
 
+  /*
+    **`supported` に modern の版を混ぜない**（2026-09-17）。
+
+    相手を legacy へ降ろしているのは `-32022` を返すことではなく、
+    **`supported` が legacy だけで埋まっていること。** クライアントは
+    `supported` から modern の版だけを取り出し、**1 つでもあれば legacy へ降りない**
+    （重なれば modern で投げ直し、重ならなければ `EraNegotiationFailed` で諦める）。
+
+    `PROTOCOL_VERSIONS` に `2026-07-28` を足した日にこのテストが落ちる。
+    落ちなければ、代わりに**本番の握りが無音で落ちる**（OPERATIONS §11 の取り違え）。
+    詳しくは `server.ts` の `unsupportedProtocolVersion`。
+  */
+  it("supported が legacy だけで埋まっている（modern を混ぜない）", async () => {
+    const { body } = await mcpJson(modern("server/discover", "2026-07-28"));
+    const supported = (body.error as { data: { supported: readonly string[] } })
+      .data.supported;
+
+    expect(supported.length).toBeGreaterThan(0);
+    // modern は `2026-07-28` 以降。版は辞書順で比較できる形をしている。
+    expect(supported.filter((version) => version >= "2026-01-01")).toEqual([]);
+  });
+
   it("名乗った版が話せるものなら普通に応える", async () => {
     const { body } = await mcpJson(modern("ping", "2025-11-25"));
 

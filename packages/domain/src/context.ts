@@ -11,16 +11,18 @@ const CONTEXT_WINDOW_1M = 1_000_000;
   routine のフォームにはモデルセレクタがあるので、ここに無いモデルを選ばれると Discord のバーが「窓が引けていません」に化ける。
   表に足す条件は「この契約で何 token になるかが一意に決まること」（`context.test.ts` の「確信の無いモデルは表に足さない」）—— 迷うものは足さず、`%` を出さない側へ倒す。
 
-  1M の根拠は 2 つあり、**どちらか片方でも足りない**:
+  **正本は Claude Code が抱えているモデル表**（`context:{window, native_1m, supports_1m_suffix}`）。
+  **platform.claude.com の API docs ではない。** 2026-09-17 に 2.1.274 のバンドルで実測して、両者が食い違うことを確かめた ——
+  docs は Opus 4.6 / Sonnet 4.6 を「既定 1M・beta ヘッダ不要」と書くが、**Claude Code はどちらも `window:200000` で回し、1M は `[1m]` 変種で選ばせる。**
 
-  - **API の既定**: Fable 5/5.1・Mythos 5/5.1・Sonnet 5・Opus 4.7 以降は既定で 1M（`claude-opus-5` は 2026-09-06 に cloud session で実測）
-  - **サブスクの自動繰り上げ**: Max / Team / Enterprise では **Opus が無設定で 1M に上がる**
+  **ここで要るのは「API の最大」ではなく「この run が実際に走っている窓」。**
+  バーが答えるのは「あと何割で詰まるか」で、詰まる位置を決めているのは Claude Code の側（自動 compact もそこで動く）。
+  API の 1M を分母にすると、200K で走っているセッションを「まだ 6%」と 5 倍甘く表示して、**警告として役に立たなくなる。**
 
-  `claude-sonnet-4-6` を 1M で足さない。
-  あれは自動繰り上げの対象外で、1M には usage credits が要る —— 既定は 200K なので、そちらで足す（`[1m]` が付いていれば `splitModelVariant` が 1M に上書きする）。
+  表に足す条件は「Claude Code のモデル表で `native_1m` が立っていること」。
+  `native_1m` が無いものは `window` の値（200K）で足し、`[1m]` が付いていれば `splitModelVariant` が 1M に上書きする。
 
-  `claude-opus-4-6` は足さない。
-  API の既定は 200K で、1M になるかはプラン次第（Opus 4.7 以降と違って「既定で 1M」の側に居ない）—— 契約が変わると静かにずれるので、表に入れずに「引けません」と言わせる。
+  更新手順は OPERATIONS.md §12（バンドルから 1 行で引ける）。
 */
 const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   "claude-fable-5-1": CONTEXT_WINDOW_1M,
@@ -32,6 +34,7 @@ const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   "claude-opus-4-8": CONTEXT_WINDOW_1M,
   "claude-opus-4-7": CONTEXT_WINDOW_1M,
   "claude-sonnet-4-6": DEFAULT_CONTEXT_WINDOW_TOKENS,
+  "claude-opus-4-6": DEFAULT_CONTEXT_WINDOW_TOKENS,
   "claude-haiku-4-5": DEFAULT_CONTEXT_WINDOW_TOKENS,
   "claude-haiku-4-5-20251001": DEFAULT_CONTEXT_WINDOW_TOKENS,
 };

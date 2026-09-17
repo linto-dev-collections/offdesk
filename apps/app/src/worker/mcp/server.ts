@@ -76,6 +76,10 @@ import {
  * （`-32020`）と MRTR を持つ —— 握り（要件 `F-B1`）は modern でも合法なので
  * 急ぐ理由が無く、**動いている経路を作り直す危険の方が大きい。**
  * 代わりに `unsupportedProtocolVersion` で「legacy へ降りてこい」と明示する。
+ *
+ * **この配列に modern の版（`2026-07-28` 以降）を 1 つでも足してはいけない。**
+ * 足した日に、いま繋がっている経路が落ちる —— 理由は
+ * `unsupportedProtocolVersion` の「降ろし方」に書いた。
  */
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const LATEST_PROTOCOL_VERSION = PROTOCOL_VERSIONS[0];
@@ -202,7 +206,22 @@ const forbiddenOrigin = (request: Request): boolean => {
  *
  * `200` ＋ `-32601` ではこの分岐に入らない。
  * それが 2026-09-06 まで offdesk が返していたもので、繋がっていたのはクライアント側が寛容だったからに過ぎない。
- * ここで `400` ＋ `-32022` ＋ `supported` を返せば、相手は必ず legacy を選び直す。
+ *
+ * **降ろし方は `supported` の中身で決まる**（2026-09-17 に 2.1.274 のバンドルで実測）。
+ * 相手は `supported` から **modern の版だけを取り出して**（`Gt`）こう分ける ——
+ *
+ * 1. 自分の話せる modern と重なる版がある → **modern のまま**その版で投げ直す（`corrective`）
+ * 2. 重ならないが modern の版が 1 つでもある → `EraNegotiationFailed` で**接続を諦める**
+ * 3. modern の版が 1 つも無い → **`initialize` に落ちる**（＝offdesk が欲しいのはこれ）
+ *
+ * つまり効いているのは `-32022` を返すことではなく、**`supported` を legacy だけで埋めること。**
+ * `PROTOCOL_VERSIONS` に `2026-07-28` を足すと 2 番に落ちて**繋がらなくなる** ——
+ * 「modern も話せます」と名乗った以上、相手は legacy へ降りてくれない。
+ *
+ * **これは机上の話ではない。** Claude Code は HTTP のとき既定で
+ * `server/discover` を先に投げる（`tengu_mcp_protocol_negotiation_http` の既定が有効）ので、
+ * **いま繋がっている経路そのものがこの 3 番を通っている。**
+ * https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning
  */
 const unsupportedProtocolVersion = (
   id: JsonRpcId,

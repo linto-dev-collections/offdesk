@@ -101,13 +101,11 @@ describe("分母（モデルから引く）", () => {
   });
 
   /*
-    **プランで変わるモデルは表に足さない。**
+    **Claude Code のモデル表に無いものは「引けません」に倒す。**
 
-    `claude-opus-4-6` の 1M は「Opus の自動繰り上げ」に乗っている側で、
-    **API の既定が 1M なのは Opus 4.7 以降**。契約が変われば静かにずれるので、
-    当てずっぽうの分母より「引けません」に倒す（`context.ts` の why）。
+    当てずっぽうの分母より「分かりません」の方が良い（`context.ts` の why）。
   */
-  it.each(["claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-5"])(
+  it.each(["claude-opus-4-5", "claude-sonnet-4-5", "claude-opus-4-1"])(
     "%s は表に無いので「引けない」と言う",
     (model) => {
       expect(hasKnownContextWindow(model)).toBe(false);
@@ -115,15 +113,20 @@ describe("分母（モデルから引く）", () => {
   );
 
   /*
-    **1M を既定で持たないモデル。**
+    **`native_1m` が立っていないモデル**（Claude Code のモデル表）。
 
-    **`claude-sonnet-4-6` をここに置くのが要点。** Opus と違って自動繰り上げの
-    対象外で、1M には usage credits が要る —— 1M で足すと、繰り上がっていない
-    セッションで分母が 5 倍になって「まだ 6%」と嘘をつく。
-    繰り上がっている場合は `[1m]` が付くので、下の変種の表がそちらを拾う。
+    **4.6 の 2 つをここに置くのが要点。** platform.claude.com の API docs は
+    どちらも「既定 1M・beta ヘッダ不要」と書くが、**Claude Code は
+    `window:200000` で回す**（2026-09-17 に 2.1.274 のバンドルで実測）。
+    バーの分母は「API の最大」ではなく「この run が実際に走っている窓」——
+    1M で足すと分母が 5 倍になり、200K で走っているセッションを
+    「まだ 6%」と表示して**警告の役に立たなくなる。**
+
+    1M で走っている場合は `[1m]` が付くので、下の変種の表がそちらを拾う。
   */
   it.each([
     ["claude-sonnet-4-6", 200_000],
+    ["claude-opus-4-6", 200_000],
     ["claude-haiku-4-5", 200_000],
     ["claude-haiku-4-5-20251001", 200_000],
   ])("%s は %i", (model, windowTokens) => {
@@ -131,10 +134,13 @@ describe("分母（モデルから引く）", () => {
     expect(hasKnownContextWindow(model)).toBe(true);
   });
 
-  it("claude-sonnet-4-6[1m] は変種を見て 1M に上がる", () => {
-    expect(contextWindowFor("claude-sonnet-4-6[1m]")).toBe(1_000_000);
-    expect(hasKnownContextWindow("claude-sonnet-4-6[1m]")).toBe(true);
-  });
+  it.each(["claude-sonnet-4-6[1m]", "claude-opus-4-6[1m]"])(
+    "%s は変種を見て 1M に上がる",
+    (model) => {
+      expect(contextWindowFor(model)).toBe(1_000_000);
+      expect(hasKnownContextWindow(model)).toBe(true);
+    },
+  );
 
   /*
     **Claude Code は長い窓を角括弧の変種で表す**（`claude-opus-5[1m]`）。
